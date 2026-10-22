@@ -4,7 +4,7 @@
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || ($("[name=csrfmiddlewaretoken]") || {}).value;
+  const csrf = () => (document.cookie.match(/(?:^|; )ooda_csrftoken=([^;]+)/) || [])[1] || ($("[name=csrfmiddlewaretoken]") || {}).value;
 
   // Filters apply as soon as they change; search waits for a pause in typing.
   $$("form[data-autosubmit]").forEach((form) => {
