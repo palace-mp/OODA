@@ -2,8 +2,9 @@ from datetime import timedelta
 from statistics import median
 
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Prefetch, Q
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -12,9 +13,9 @@ from django.views.decorators.http import require_POST
 from accounts.decorators import member_required
 from accounts.models import Workspace
 
-from . import notify
+from . import document, notify
 from .forms import EntryForm, ItemForm, LinkForm, workspace_users
-from .models import OBSERVE, PHASE_ORDER, PHASES, Comment, Entry, Field, FieldOption, Item, Link, PhaseSpan
+from .models import OBSERVE, PHASE_ORDER, PHASES, Comment, Entry, Field, FieldOption, Item, Link, PhaseSpan, Reply
 
 # --- Board -----------------------------------------------------------------
 
@@ -29,8 +30,7 @@ def item_queryset(workspace):
             Prefetch("depends_on", queryset=Item.objects.only("pk", "number", "title", "is_done")),
         )
         .annotate(
-            entry_count=Count("entries", distinct=True),
-            open_comments=Count("comments", filter=Q(comments__resolved=False), distinct=True),
+            open_comments=Count("comments", filter=Q(comments__status="open"), distinct=True),
         )
     )
 
@@ -50,7 +50,7 @@ def filter_items(request, workspace):
     items = item_queryset(workspace)
     if f["q"]:
         q = f["q"]
-        cond = Q(title__icontains=q) | Q(body__icontains=q) | Q(entries__body__icontains=q)
+        cond = Q(title__icontains=q) | Q(body__icontains=q)
         if q.lstrip("#").isdigit():
             cond |= Q(number=int(q.lstrip("#")))
         items = items.filter(cond)
@@ -172,7 +172,6 @@ def new(request):
         form.instance.created_by = request.user
         item = form.save()
         notify.assigned(item, item.assignees.all(), request.user)
-        notify.mentioned(item, notify.mentioned_users(item.body, request.workspace), request.user, item.body)
         return redirect(item)
     return render(request, "board/new.html", {"form": form})
 
@@ -180,25 +179,25 @@ def new(request):
 # --- One item --------------------------------------------------------------
 
 
-def get_item(request, number):
+def get_item(request, number, edit=False):
+    """The item, or a redirect to where it was merged. With `edit`, only for its editors."""
     item = get_object_or_404(Item, workspace=request.workspace, number=number)
     if item.merged_into_id:
         return None, redirect(item.merged_into)
+    if edit and not item.can_edit(request.user, request.membership):
+        raise PermissionDenied
     return item, None
 
 
 def item_page_context(item, public=False):
-    entries = list(item.entries.select_related("author"))
-    loops = {}
-    for entry in entries:
-        loops.setdefault(entry.cycle or 1, []).append(entry)
     spans = list(item.spans.all())
     loop_times = loop_durations(spans)
     current = next((s for s in reversed(spans) if s.ended_at is None), None)
+    threads = list(item.comments.select_related("author", "closed_by").prefetch_related("replies__author"))
     return {
         "item": item,
-        "loops": sorted(loops.items(), reverse=True),
-        "comments": item.comments.select_related("author").order_by("resolved", "created_at"),
+        "threads": [c for c in threads if c.is_open],
+        "closed_threads": [c for c in threads if not c.is_open],
         "children": item.children.filter(merged_into=None).order_by("is_done", "number"),
         "merged": item.merged.all(),
         "blocks": item.blocks.filter(is_done=False),
@@ -215,13 +214,11 @@ def item(request, number):
     item, redirect_to = get_item(request, number)
     if redirect_to:
         return redirect_to
-    form = ItemForm(instance=item, workspace=request.workspace)
     context = item_page_context(item)
     context.update({
-        "form": form,
-        "entry_form": EntryForm(initial={"kind": Entry.KIND_FOR_PHASE[item.phase]}),
+        "can_edit": item.can_edit(request.user, request.membership),
+        "form": ItemForm(instance=item, workspace=request.workspace),
         "link_form": LinkForm(),
-        "people": workspace_users(request.workspace),
         "candidates": Item.objects.filter(workspace=request.workspace, merged_into=None, is_done=False)
         .exclude(pk=item.pk).order_by("number"),
     })
@@ -230,12 +227,44 @@ def item(request, number):
 
 @member_required
 @require_POST
-def edit(request, number):
+def save_document(request, number):
+    """Autosave from the editor. Refuses to overwrite a newer version."""
     item, redirect_to = get_item(request, number)
+    if redirect_to:
+        return HttpResponse(status=410)
+    if not item.can_edit(request.user, request.membership):
+        return HttpResponseForbidden()
+    try:
+        version = int(request.POST.get("version", ""))
+    except ValueError:
+        return HttpResponseBadRequest()
+    if version != item.body_version:
+        return JsonResponse({"version": item.body_version}, status=409)
+    old_body = item.body
+    title = request.POST.get("title", "").strip()[:200]
+    if title:
+        item.title = title
+    item.body = document.sanitize(request.POST.get("body", ""))
+    item.body_version += 1
+    item.save(update_fields=["title", "body", "body_version", "updated_at"])
+    mention_new(request, item, old_body, item.body)
+    return JsonResponse({"version": item.body_version})
+
+
+def mention_new(request, item, old_html, new_html):
+    """E-mail people who are @mentioned in the new text but weren't before."""
+    already = set(notify.mentioned_users(document.plain_text(old_html), request.workspace))
+    fresh = set(notify.mentioned_users(document.plain_text(new_html), request.workspace)) - already
+    notify.mentioned(item, fresh, request.user, document.plain_text(new_html))
+
+
+@member_required
+@require_POST
+def edit(request, number):
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     before = set(item.assignees.all())
-    old_body = item.body
     form = ItemForm(request.POST, instance=item, workspace=request.workspace)
     if form.is_valid():
         form.save()
@@ -243,10 +272,6 @@ def edit(request, number):
             item.deadline_reminded_on = None
             item.save(update_fields=["deadline_reminded_on"])
         notify.assigned(item, set(item.assignees.all()) - before, request.user)
-        if item.body != old_body:
-            already = set(notify.mentioned_users(old_body, request.workspace))
-            fresh = set(notify.mentioned_users(item.body, request.workspace)) - already
-            notify.mentioned(item, fresh, request.user, item.body)
     else:
         messages.error(request, " ".join(e for errs in form.errors.values() for e in errs))
     return redirect(item)
@@ -255,7 +280,7 @@ def edit(request, number):
 @member_required
 @require_POST
 def phase(request, number):
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     target = request.POST.get("phase")
@@ -272,7 +297,7 @@ def phase(request, number):
 @require_POST
 def move(request, number):
     """Drag and drop on the board: set the phase or a field option."""
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return HttpResponse(status=409)
     group, value = request.POST.get("group", "phase"), request.POST.get("value", "")
@@ -292,7 +317,7 @@ def move(request, number):
 @member_required
 @require_POST
 def done(request, number):
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     item.set_done(not item.is_done, request.user)
@@ -305,41 +330,27 @@ def done(request, number):
 
 @member_required
 @require_POST
-def add_entry(request, number=None):
-    item = None
-    if number is not None:
-        item, redirect_to = get_item(request, number)
-        if redirect_to:
-            return redirect_to
+def add_entry(request):
     form = EntryForm(request.POST)
     if form.is_valid():
         entry = form.save(commit=False)
         entry.workspace = request.workspace
-        entry.item = item
         entry.author = request.user
         entry.save()
-        if item:
-            notify.mentioned(item, notify.mentioned_users(entry.body, request.workspace), request.user, entry.body)
-            if request.POST.get("advance") and Entry.KIND_FOR_PHASE[item.phase] == entry.kind:
-                item.advance(request.user)
-    if item:
-        return redirect(item.get_absolute_url() + "#entries")
     return redirect("board:inbox")
 
 
 @member_required
 @require_POST
 def delete_entry(request, pk):
-    entry = get_object_or_404(Entry, workspace=request.workspace, pk=pk, author=request.user)
-    item = entry.item
-    entry.delete()
-    return redirect(item.get_absolute_url() + "#entries" if item else "board:inbox")
+    get_object_or_404(Entry, workspace=request.workspace, pk=pk, item=None, author=request.user).delete()
+    return redirect("board:inbox")
 
 
 @member_required
 @require_POST
 def add_link(request, number):
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     form = LinkForm(request.POST)
@@ -357,6 +368,8 @@ def add_link(request, number):
 @require_POST
 def delete_link(request, pk):
     link = get_object_or_404(Link, item__workspace=request.workspace, pk=pk)
+    if not link.item.can_edit(request.user, request.membership):
+        raise PermissionDenied
     link.delete()
     return redirect(link.item)
 
@@ -371,7 +384,7 @@ def find_item(request, value):
 @member_required
 @require_POST
 def depend(request, number):
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     other = find_item(request, request.POST.get("other"))
@@ -400,7 +413,7 @@ def creates_cycle(item, other):
 @member_required
 @require_POST
 def undepend(request, number, other):
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     item.depends_on.remove(*item.depends_on.filter(number=other))
@@ -410,7 +423,7 @@ def undepend(request, number, other):
 @member_required
 @require_POST
 def merge(request, number):
-    item, redirect_to = get_item(request, number)
+    item, redirect_to = get_item(request, number, edit=True)
     if redirect_to:
         return redirect_to
     target = find_item(request, request.POST.get("into"))
@@ -425,30 +438,80 @@ def merge(request, number):
 @member_required
 @require_POST
 def comment(request, number):
+    """Start a thread: a comment, or a suggestion to replace the quoted passage."""
     item, redirect_to = get_item(request, number)
     if redirect_to:
         return redirect_to
+    kind = Comment.SUGGESTION if request.POST.get("kind") == Comment.SUGGESTION else Comment.COMMENT
+    quote = request.POST.get("quote", "")[:2000]
     body = request.POST.get("body", "").strip()
-    target = request.POST.get("target", "body")
-    if not (target == "body" or (target.startswith("entry-") and target[6:].isdigit())):
-        target = "body"
-    if body:
-        Comment.objects.create(
-            item=item, target=target, quote=request.POST.get("quote", "")[:2000], body=body, author=request.user
-        )
-        to = set(notify.mentioned_users(body, request.workspace))
-        notify.mentioned(item, to, request.user, body)
-    return redirect(item.get_absolute_url() + "#comments")
+    replacement = request.POST.get("replacement", "")[:4000]
+    if kind == Comment.SUGGESTION and (not quote or replacement == quote):
+        return redirect(item)
+    if kind == Comment.COMMENT and not body:
+        return redirect(item)
+    c = Comment.objects.create(
+        item=item, kind=kind, quote=quote, prefix=request.POST.get("prefix", "")[-60:],
+        replacement=replacement if kind == Comment.SUGGESTION else "", body=body, author=request.user,
+    )
+    notify.mentioned(item, notify.mentioned_users(body, request.workspace), request.user, body)
+    if kind == Comment.SUGGESTION:
+        editors = [u for u in item.assignees.all()] or [m.user for m in request.workspace.memberships.filter(
+            role="owner").select_related("user")]
+        notify.suggested(item, editors, request.user, c)
+    return redirect(f"{item.get_absolute_url()}#c{c.pk}")
 
 
 @member_required
 @require_POST
-def resolve(request, pk):
+def reply(request, pk):
     c = get_object_or_404(Comment, item__workspace=request.workspace, pk=pk)
-    c.resolved = not c.resolved
-    c.resolved_by = request.user if c.resolved else None
-    c.save(update_fields=["resolved", "resolved_by"])
-    return redirect(c.item.get_absolute_url() + "#comments")
+    body = request.POST.get("body", "").strip()
+    if body:
+        Reply.objects.create(comment=c, body=body, author=request.user)
+        thread = {c.author, *[r.author for r in c.replies.select_related("author")]}
+        notify.replied(c.item, thread, request.user, c, body)
+        notify.mentioned(c.item, set(notify.mentioned_users(body, request.workspace)) - thread,
+                         request.user, body)
+    return redirect(f"{c.item.get_absolute_url()}#c{c.pk}")
+
+
+@member_required
+@require_POST
+def comment_status(request, pk):
+    """Resolve or reopen a thread; accept or reject a suggestion.
+
+    Editors of the item may do all of it. Whoever started a thread may resolve
+    or reopen it, which for a suggestion means withdrawing it.
+    """
+    c = get_object_or_404(Comment, item__workspace=request.workspace, pk=pk)
+    item = c.item
+    editor = item.can_edit(request.user, request.membership)
+    action = request.POST.get("action")
+    if action in ("resolve", "reopen"):
+        if not (editor or c.author_id == request.user.pk):
+            return HttpResponseForbidden()
+        c.close(Comment.RESOLVED if action == "resolve" else Comment.OPEN, request.user)
+    elif action in ("accept", "reject") and c.is_suggestion and c.is_open:
+        if not editor:
+            return HttpResponseForbidden()
+        if action == "accept":
+            # The browser applies the change to the document and sends the result.
+            try:
+                version = int(request.POST.get("version", ""))
+            except ValueError:
+                return HttpResponseBadRequest()
+            if version != item.body_version:
+                messages.error(request, _("The document changed meanwhile. Try again."))
+                return redirect(item)
+            old_body = item.body
+            item.body = document.sanitize(request.POST.get("body", ""))
+            item.body_version += 1
+            item.save(update_fields=["body", "body_version", "updated_at"])
+            mention_new(request, item, old_body, item.body)
+        c.close(Comment.ACCEPTED if action == "accept" else Comment.REJECTED, request.user)
+        notify.decided(item, c, request.user)
+    return redirect(f"{item.get_absolute_url()}#c{c.pk}")
 
 
 # --- Inbox -----------------------------------------------------------------
@@ -468,22 +531,32 @@ def inbox(request):
 @member_required
 @require_POST
 def file_entry(request, pk):
-    """Turn a loose entry into a new item, or file it under an existing one."""
+    """Turn a loose entry into a new item, or file it under an existing one.
+
+    Filed under an item, it is added to the end of the document, or, for
+    someone who may not edit that document, left there as a comment.
+    """
     entry = get_object_or_404(Entry, workspace=request.workspace, pk=pk, item=None)
     if request.POST.get("into") == "new":
         title = request.POST.get("title", "").strip() or entry.body.splitlines()[0][:120]
         phase = {v: k for k, v in Entry.KIND_FOR_PHASE.items()}.get(entry.kind, OBSERVE)
         target = Item.objects.create(
-            workspace=request.workspace, title=title, created_by=request.user, phase=phase
+            workspace=request.workspace, title=title[:200], created_by=request.user, phase=phase,
+            body=document.from_text(entry.body),
         )
     else:
         target = find_item(request, request.POST.get("into"))
         if target is None:
             messages.error(request, _("No such item."))
             return redirect("board:inbox")
-    entry.item = target
-    entry.cycle = target.cycle
-    entry.save(update_fields=["item", "cycle"])
+        if target.can_edit(request.user, request.membership):
+            target.body = (target.body or "") + document.from_entry(entry)
+            target.body_version += 1
+            target.save(update_fields=["body", "body_version", "updated_at"])
+        else:
+            Comment.objects.create(item=target, author=entry.author or request.user,
+                                   body=f"{entry.get_kind_display()}: {entry.body}")
+    entry.delete()
     messages.success(request, _("Filed under #%(n)s.") % {"n": target.number})
     return redirect("board:inbox")
 

@@ -29,7 +29,8 @@ class Item(models.Model):
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="items")
     number = models.PositiveIntegerField(editable=False)
     title = models.CharField(_("title"), max_length=200)
-    body = models.TextField(_("description"), blank=True)
+    body = models.TextField(_("document"), blank=True)  # sanitised HTML, see board/document.py
+    body_version = models.PositiveIntegerField(default=0, editable=False)
 
     phase = models.CharField(_("phase"), max_length=10, choices=PHASES, default=OBSERVE)
     cycle = models.PositiveIntegerField(_("loop"), default=1)
@@ -73,6 +74,17 @@ class Item(models.Model):
                 PhaseSpan.objects.create(item=self, phase=self.phase, cycle=self.cycle, started_at=self.created_at)
             return
         super().save(*args, **kwargs)
+
+    def can_edit(self, user, membership):
+        """Owners, assignees and whoever created the item edit the document directly.
+
+        Everyone else in the workspace comments and suggests changes.
+        """
+        if membership is None or membership.workspace_id != self.workspace_id:
+            return False
+        if membership.is_owner or self.created_by_id == user.pk:
+            return True
+        return self.assignees.filter(pk=user.pk).exists()
 
     @property
     def open_dependencies(self):
@@ -135,10 +147,10 @@ class Item(models.Model):
         self.blocks.clear()
         self.depends_on.clear()
         if self.body:
-            Entry.objects.create(
-                workspace=self.workspace, item=target, kind=Entry.NOTE, author=by,
-                body=f"#{self.number} {self.title}\n\n{self.body}",
-            )
+            from .document import heading
+
+            target.body = (target.body or "") + heading(f"#{self.number} {self.title}") + self.body
+            target.body_version += 1
         target.is_priority = target.is_priority or self.is_priority
         if self.deadline and (not target.deadline or self.deadline < target.deadline):
             target.deadline = self.deadline
@@ -249,20 +261,54 @@ class FieldOption(models.Model):
 
 
 class Comment(models.Model):
-    """A margin comment anchored to a passage, like in a shared document.
+    """A margin comment or a suggested change, anchored to a passage of the document.
 
-    `target` names the text it belongs to: "body" or "entry-<id>". `quote` is
-    the selected passage, used to find and highlight it again.
+    `quote` is the passage and `prefix` the text just before it in the same
+    paragraph, so the passage can be found again even if it occurs twice.
+    A suggestion proposes `replacement` in place of `quote`.
     """
 
+    COMMENT, SUGGESTION = "comment", "suggestion"
+    KINDS = [(COMMENT, _("Comment")), (SUGGESTION, _("Suggestion"))]
+    OPEN, RESOLVED, ACCEPTED, REJECTED = "open", "resolved", "accepted", "rejected"
+    STATUSES = [(OPEN, _("Open")), (RESOLVED, _("Resolved")), (ACCEPTED, _("Accepted")), (REJECTED, _("Rejected"))]
+
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="comments")
-    target = models.CharField(max_length=30, default="body")
+    kind = models.CharField(max_length=12, choices=KINDS, default=COMMENT)
     quote = models.TextField(blank=True)
-    body = models.TextField(_("comment"))
+    prefix = models.CharField(max_length=60, blank=True)
+    replacement = models.TextField(blank=True)
+    body = models.TextField(_("comment"), blank=True)
     author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="comments")
     created_at = models.DateTimeField(auto_now_add=True)
-    resolved = models.BooleanField(default=False)
-    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    status = models.CharField(max_length=10, choices=STATUSES, default=OPEN)
+    closed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]
+
+    @property
+    def is_open(self):
+        return self.status == self.OPEN
+
+    @property
+    def is_suggestion(self):
+        return self.kind == self.SUGGESTION
+
+    def close(self, status, by):
+        self.status = status
+        self.closed_by = by if status != self.OPEN else None
+        self.closed_at = timezone.now() if status != self.OPEN else None
+        self.save(update_fields=["status", "closed_by", "closed_at"])
+
+
+class Reply(models.Model):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name="replies")
+    body = models.TextField(_("reply"))
+    author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name_plural = "replies"

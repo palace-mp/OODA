@@ -7,10 +7,9 @@ from .models import Entry, Field, FieldOption, Item, Link
 class ItemForm(forms.ModelForm):
     class Meta:
         model = Item
-        fields = ["title", "body", "deadline", "is_priority", "assignees", "parent"]
+        fields = ["title", "deadline", "is_priority", "assignees", "parent"]
         widgets = {
             "title": forms.TextInput(attrs={"placeholder": _("What needs doing?"), "autofocus": True}),
-            "body": forms.Textarea(attrs={"rows": 6, "placeholder": _("Background, context, what done looks like…")}),
             "deadline": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "assignees": forms.CheckboxSelectMultiple,
         }
@@ -18,6 +17,8 @@ class ItemForm(forms.ModelForm):
     def __init__(self, *args, workspace, **kwargs):
         super().__init__(*args, **kwargs)
         self.workspace = workspace
+        if self.instance.pk:
+            del self.fields["title"]  # edited in place, together with the document
         self.fields["assignees"].queryset = workspace_users(workspace)
         parents = Item.objects.filter(workspace=workspace, is_done=False, merged_into=None)
         if self.instance.pk:

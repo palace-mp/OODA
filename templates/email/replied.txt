@@ -1,0 +1,6 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with who=by.name n=item.number t=item.title %}{{ who }} replied on #{{ n }} {{ t }}:{% endblocktranslate %}
+
+{{ text }}
+
+{{ site_url }}{{ item.get_absolute_url }}#c{{ c.pk }}
+{% endautoescape %}

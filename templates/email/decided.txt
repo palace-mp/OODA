@@ -1,0 +1,7 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with who=by.name n=item.number t=item.title s=c.get_status_display|lower %}{{ who }} {{ s }} your suggestion on #{{ n }} {{ t }}:{% endblocktranslate %}
+
+- {{ c.quote }}
++ {{ c.replacement }}
+
+{{ site_url }}{{ item.get_absolute_url }}#c{{ c.pk }}
+{% endautoescape %}

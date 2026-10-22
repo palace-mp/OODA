@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Membership, User, Workspace
-from board.models import Comment, Entry, Field, FieldOption, Item, Link, PhaseSpan
+from board.models import Comment, Entry, Field, FieldOption, Item, Link, Reply
 
 
 class Command(BaseCommand):
@@ -51,27 +51,34 @@ class Command(BaseCommand):
 
         onboarding = make(
             "Customers drop off during onboarding", "orient", [m, s], "Customers", 9,
-            body="Since the new sign-up flow, fewer customers finish setting up their first board. "
-                 "We need to understand where they stop and why before we change anything.\n\n"
-                 "Done when the drop-off is back under 20%.",
+            body=(
+                "<p>Since the new sign-up flow, fewer customers finish setting up their first board. "
+                "We need to understand where they stop and why before we change anything.</p>"
+                "<h2>What we see</h2>"
+                "<ul><li>The funnel shows 41% stop at the step where they invite their team.</li>"
+                "<li>Most of those who stop work alone.</li></ul>"
+                "<h2>What we think it means</h2>"
+                "<p>Asking for a team too early feels like a wall. Solo users have nobody to invite, "
+                "so the step reads as \u201cthis isn\u2019t for you\u201d.</p>"
+                "<h2>What we do</h2>"
+                "<p>Make the invite step skippable and move it to after the first item. "
+                "Then watch the numbers for two weeks.</p>"
+                "<p>Done when the drop-off is back under 20%.</p>"
+            ),
             prio=True, deadline=today + timedelta(days=5), cycle=2,
         )
-        Entry.objects.create(workspace=ws, item=onboarding, kind="observation", author=s, cycle=1,
-                             body="Funnel shows 41% stop at the 'invite your team' step.")
-        Entry.objects.create(workspace=ws, item=onboarding, kind="orientation", author=m, cycle=1,
-                             body="Most of them are solo users. Asking for a team too early feels like a wall.")
-        Entry.objects.create(workspace=ws, item=onboarding, kind="decision", author=m, cycle=1,
-                             body="Make the invite step skippable and move it to after the first item.")
-        Entry.objects.create(workspace=ws, item=onboarding, kind="action", author=j, cycle=1,
-                             body="Shipped the skippable step on Tuesday. @sara can you watch the numbers?")
-        Entry.objects.create(workspace=ws, item=onboarding, kind="observation", author=s, cycle=2,
-                             body="Drop-off at that step is down to 18%, but more people now stop at 'create first item'.")
-        Comment.objects.create(item=onboarding, target="body", quote="fewer customers finish setting up",
-                               body="How many fewer? Let's put the number here.", author=j)
+        c1 = Comment.objects.create(item=onboarding, quote="fewer customers finish setting up", prefix="Since the new sign-up flow, ",
+                                    body="How many fewer? Let's put the number here.", author=j)
+        Reply.objects.create(comment=c1, body="About a third fewer than in August. I'll add the chart.", author=s)
+        Comment.objects.create(item=onboarding, kind="suggestion", quote="two weeks", prefix="Then watch the numbers for ",
+                               replacement="three weeks, so we see a full billing cycle", body="Two weeks misses the monthly payers.",
+                               author=j)
+        Comment.objects.create(item=onboarding, quote="Most of those who stop work alone.",
+                               body="@martin do we know this from the data or from interviews?", author=s)
         Link.objects.create(item=onboarding, url="https://example.com/funnel", label="Funnel dashboard", added_by=s)
 
         server = make("Move hosting to a server in the EU", "decide", [j], "Operations", 6,
-                      body="Compare two or three providers on price, location and backups.",
+                      body="<p>Compare two or three providers on price, location and backups.</p>",
                       deadline=today + timedelta(days=12))
         backups = make("Set up nightly backups", "observe", [j], "Operations", 1, parent=server)
         dns = make("Point ooda.obrydd.com to the new server", "observe", [], "Operations", 1, parent=server)

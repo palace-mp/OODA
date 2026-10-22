@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from accounts.models import Invite, Membership, User, Workspace
 
-from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Entry, Field, FieldOption, Item, PhaseSpan
+from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Entry, Field, FieldOption, Item, PhaseSpan, Reply
 
 
 class Base(TestCase):
@@ -76,14 +76,6 @@ class LoopTests(Base):
         self.assertEqual(item.spans.count(), 5)
         self.assertEqual(item.spans.filter(ended_at=None).count(), 1)
 
-    def test_entry_can_move_item_along(self):
-        item = self.item()
-        self.client.post(reverse("board:entry", args=[item.number]),
-                         {"kind": "observation", "body": "Gate is stuck", "advance": "1"})
-        item.refresh_from_db()
-        self.assertEqual(item.phase, ORIENT)
-        self.assertEqual(item.entries.get().cycle, 1)
-
     def test_done_closes_open_span(self):
         item = self.item()
         self.client.post(reverse("board:done", args=[item.number]))
@@ -98,22 +90,33 @@ class InboxTests(Base):
         entry = Entry.objects.get()
         self.assertIsNone(entry.item)
         self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": "new", "title": ""})
-        entry.refresh_from_db()
-        self.assertEqual(entry.item.title, "Customers churn after onboarding")
-        self.assertEqual(entry.item.phase, ORIENT)
+        item = Item.objects.get()
+        self.assertEqual(item.title, "Customers churn after onboarding")
+        self.assertEqual(item.phase, ORIENT)
+        self.assertEqual(item.body, "<p>Customers churn after onboarding<br>more</p>")
+        self.assertFalse(Entry.objects.exists())
 
-    def test_loose_entry_filed_under_item(self):
-        item = self.item()
-        entry = Entry.objects.create(workspace=self.ws, kind="observation", body="x", author=self.bo)
+    def test_filed_note_is_added_to_the_document(self):
+        item = self.item(body="<p>Start</p>")
+        entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Gate <stuck>", author=self.bo)
         self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": f"#{item.number}"})
-        entry.refresh_from_db()
-        self.assertEqual(entry.item, item)
+        item.refresh_from_db()
+        self.assertIn("<strong>Observation:</strong> Gate &lt;stuck&gt;", item.body)
+        self.assertEqual(item.body_version, 1)
+
+    def test_member_filing_under_others_item_leaves_a_comment(self):
+        item = self.item(body="<p>Start</p>")
+        self.client.force_login(self.bo)
+        entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Seen it", author=self.bo)
+        self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": f"#{item.number}"})
+        item.refresh_from_db()
+        self.assertEqual(item.body, "<p>Start</p>")
+        self.assertEqual(item.comments.get().body, "Observation: Seen it")
 
 
 class StructureTests(Base):
     def test_merge_moves_everything(self):
-        a, b, c = self.item("A"), self.item("B", body="details"), self.item("C")
-        Entry.objects.create(workspace=self.ws, item=b, body="seen", author=self.bo)
+        a, b, c = self.item("A", body="<p>a</p>"), self.item("B", body="<p>details</p>"), self.item("C")
         Comment.objects.create(item=b, body="hm", author=self.bo)
         b.assignees.add(self.bo)
         c.depends_on.add(b)
@@ -122,7 +125,8 @@ class StructureTests(Base):
         b.refresh_from_db()
         self.assertEqual(b.merged_into, a)
         self.assertTrue(b.is_done)
-        self.assertEqual(a.entries.count(), 2)  # the moved entry and a note with b's description
+        a.refresh_from_db()
+        self.assertEqual(a.body, "<p>a</p><h3>#2 B</h3><p>details</p>")
         self.assertEqual(a.comments.count(), 1)
         self.assertIn(self.bo, a.assignees.all())
         self.assertIn(a, c.depends_on.all())
@@ -147,26 +151,31 @@ class StructureTests(Base):
     def test_parent_cannot_be_own_child(self):
         a = self.item("A")
         b = self.item("B", parent=a)
-        r = self.client.post(reverse("board:edit", args=[a.number]), {"title": "A", "parent": b.pk})
+        r = self.client.post(reverse("board:edit", args=[a.number]), {"parent": b.pk})
         a.refresh_from_db()
         self.assertIsNone(a.parent)
         self.assertEqual(r.status_code, 302)
 
 
 class NotificationTests(Base):
-    def test_assigning_and_mentioning_sends_mail(self):
+    def test_assigning_sends_mail(self):
         item = self.item()
-        self.client.post(reverse("board:edit", args=[item.number]),
-                         {"title": item.title, "assignees": [self.bo.pk], "body": "ask @bo"})
-        subjects = sorted(m.subject for m in mail.outbox)
-        self.assertEqual(len(subjects), 2)
-        self.assertTrue(any("assigned" in s for s in subjects))
-        self.assertTrue(any("mentioned" in s for s in subjects))
+        self.client.post(reverse("board:edit", args=[item.number]), {"assignees": [self.bo.pk]})
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("assigned", mail.outbox[0].subject)
+
+    def test_new_mention_in_document_sends_mail_once(self):
+        item = self.item()
+        save = reverse("board:save", args=[item.number])
+        self.client.post(save, {"body": "<p>ask @bo.</p>", "version": 0})
+        self.client.post(save, {"body": "<p>ask @bo again</p>", "version": 1})
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("mentioned", mail.outbox[0].subject)
 
     def test_comment_mention(self):
-        item = self.item(body="The gate opens slowly")
+        item = self.item(body="<p>The gate opens slowly</p>")
         self.client.post(reverse("board:comment", args=[item.number]),
-                         {"target": "body", "quote": "opens slowly", "body": "@bo how slow?"})
+                         {"quote": "opens slowly", "prefix": "The gate ", "body": "@bo how slow?"})
         self.assertEqual(Comment.objects.get().quote, "opens slowly")
         self.assertEqual(mail.outbox[0].to, ["bo@example.com"])
 
@@ -180,12 +189,15 @@ class NotificationTests(Base):
 
 class PageTests(Base):
     def test_pages_render(self):
-        a = self.item("A", body="see https://example.com and #2")
+        a = self.item("A", body="<p>see https://example.com and #2</p>")
         self.item("B", parent=a)
         field = Field.objects.create(workspace=self.ws, name="Area")
         opt = FieldOption.objects.create(field=field, label="North")
         a.options.add(opt)
-        Comment.objects.create(item=a, body="x", quote="see", author=self.bo)
+        c = Comment.objects.create(item=a, body="x", quote="see", author=self.bo)
+        Reply.objects.create(comment=c, body="y", author=self.anna)
+        Comment.objects.create(item=a, kind="suggestion", quote="see", replacement="look", author=self.bo)
+        Comment.objects.create(item=a, body="old", status="resolved", author=self.bo)
         for url in [reverse("board:index"), reverse("board:index") + f"?view=board&group={field.pk}",
                     reverse("board:index") + f"?q=A&opt={opt.pk}&who=me&due=week&prio=1&state=all",
                     a.get_absolute_url(), reverse("board:inbox"), reverse("board:tempo"),
@@ -254,3 +266,97 @@ class PageTests(Base):
         r = self.client.get(reverse("board:tempo"))
         self.assertEqual(r.context["loops_closed"], 1)
         self.assertEqual(r.context["loop_median"], timedelta(days=2))
+
+
+class DocumentTests(Base):
+    """Owners, assignees and the creator edit; other members comment and suggest."""
+
+    def setUp(self):
+        super().setUp()
+        self.carl = User.objects.create_user("carl@example.com", "pw-carl-123!", name="Carl Ny")
+        Membership.objects.create(workspace=self.ws, user=self.carl)
+        self.doc = self.item("Gate", body="<p>The gate opens slowly.</p>")
+        self.save = reverse("board:save", args=[self.doc.number])
+
+    def test_editor_saves_and_html_is_cleaned(self):
+        r = self.client.post(self.save, {
+            "title": "Gate, again", "version": 0,
+            "body": '<h2 onclick="x()">Now</h2><p>ok <script>alert(1)</script><a href="javascript:x">l</a></p>',
+        })
+        self.assertEqual(r.json(), {"version": 1})
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.title, "Gate, again")
+        self.assertEqual(self.doc.body, '<h2>Now</h2><p>ok <a rel="noopener noreferrer">l</a></p>')
+
+    def test_stale_version_is_refused(self):
+        self.client.post(self.save, {"body": "<p>one</p>", "version": 0})
+        r = self.client.post(self.save, {"body": "<p>two</p>", "version": 0})
+        self.assertEqual(r.status_code, 409)
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.body, "<p>one</p>")
+
+    def test_who_may_edit(self):
+        self.client.force_login(self.carl)
+        self.assertEqual(self.client.post(self.save, {"body": "<p>x</p>", "version": 0}).status_code, 403)
+        self.assertEqual(self.client.post(reverse("board:phase", args=[self.doc.number]),
+                                          {"phase": "next"}).status_code, 403)
+        self.assertNotContains(self.client.get(self.doc.get_absolute_url()), 'contenteditable="true"')
+        self.doc.assignees.add(self.carl)
+        self.assertEqual(self.client.post(self.save, {"body": "<p>x</p>", "version": 0}).status_code, 200)
+        self.assertContains(self.client.get(self.doc.get_absolute_url()), 'contenteditable="true"')
+
+    def suggest(self, as_user):
+        self.client.force_login(as_user)
+        self.client.post(reverse("board:comment", args=[self.doc.number]), {
+            "kind": "suggestion", "quote": "slowly", "prefix": "The gate opens ", "replacement": "too slowly",
+        })
+        return Comment.objects.get(kind="suggestion")
+
+    def test_member_suggests_and_editor_accepts(self):
+        c = self.suggest(self.carl)
+        self.assertEqual(c.replacement, "too slowly")
+        self.assertEqual([m.to for m in mail.outbox], [["anna@example.com"]])  # no assignees: the owners
+        status = reverse("board:comment_status", args=[c.pk])
+        self.assertEqual(self.client.post(status, {"action": "accept"}).status_code, 403)
+        self.client.force_login(self.anna)
+        self.client.post(status, {"action": "accept", "version": 0, "body": "<p>The gate opens too slowly.</p>"})
+        c.refresh_from_db()
+        self.doc.refresh_from_db()
+        self.assertEqual(c.status, Comment.ACCEPTED)
+        self.assertEqual(self.doc.body, "<p>The gate opens too slowly.</p>")
+        self.assertEqual(mail.outbox[-1].to, ["carl@example.com"])
+
+    def test_editor_rejects_and_author_may_withdraw(self):
+        c = self.suggest(self.carl)
+        status = reverse("board:comment_status", args=[c.pk])
+        self.client.post(status, {"action": "resolve"})  # carl withdraws his own
+        c.refresh_from_db()
+        self.assertEqual(c.status, Comment.RESOLVED)
+        c.close(Comment.OPEN, None)
+        self.client.force_login(self.anna)
+        self.client.post(status, {"action": "reject"})
+        c.refresh_from_db()
+        self.assertEqual(c.status, Comment.REJECTED)
+
+    def test_members_cannot_close_others_comments(self):
+        c = Comment.objects.create(item=self.doc, quote="gate", body="?", author=self.anna)
+        self.client.force_login(self.carl)
+        r = self.client.post(reverse("board:comment_status", args=[c.pk]), {"action": "resolve"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_reply_notifies_the_thread(self):
+        c = Comment.objects.create(item=self.doc, quote="gate", body="?", author=self.carl)
+        Reply.objects.create(comment=c, body="first", author=self.bo)
+        self.client.post(reverse("board:reply", args=[c.pk]), {"body": "Agreed"})
+        self.assertEqual(c.replies.count(), 2)
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["bo@example.com", "carl@example.com"])
+
+    def test_public_page_shows_threads_without_forms(self):
+        Comment.objects.create(item=self.doc, quote="gate", body="Visible remark", author=self.carl)
+        self.ws.is_public = True
+        self.ws.save()
+        self.client.logout()
+        r = self.client.get(reverse("public_item", args=[self.ws.public_token, self.doc.number]))
+        self.assertContains(r, "Visible remark")
+        self.assertNotContains(r, "<form")
+        self.assertNotContains(r, "contenteditable")

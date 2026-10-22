@@ -17,7 +17,7 @@ urlpatterns = [
     path("<int:number>/phase/", views.phase, name="phase"),
     path("<int:number>/move/", views.move, name="move"),
     path("<int:number>/done/", views.done, name="done"),
-    path("<int:number>/write/", views.add_entry, name="entry"),
+    path("<int:number>/save/", views.save_document, name="save"),
     path("<int:number>/link/", views.add_link, name="link"),
     path("<int:number>/wait/", views.depend, name="depend"),
     path("<int:number>/wait/<int:other>/remove/", views.undepend, name="undepend"),
@@ -25,5 +25,6 @@ urlpatterns = [
     path("<int:number>/comment/", views.comment, name="comment"),
     path("entry/<int:pk>/delete/", views.delete_entry, name="delete_entry"),
     path("link/<int:pk>/delete/", views.delete_link, name="delete_link"),
-    path("comment/<int:pk>/resolve/", views.resolve, name="resolve"),
+    path("comment/<int:pk>/reply/", views.reply, name="reply"),
+    path("comment/<int:pk>/status/", views.comment_status, name="comment_status"),
 ]

@@ -7,7 +7,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
 
-MENTION = re.compile(r"(?<![\w@])@([\w.-]+)", re.UNICODE)
+MENTION = re.compile(r"(?<![\w@])@([\w-]+(?:\.[\w-]+)*)", re.UNICODE)
 
 
 def mentioned_users(text, workspace):
@@ -43,3 +43,19 @@ def unblocked(item, finished, by):
 def deadline(item):
     _send(item.assignees.all(), _("Due soon: #%(n)s %(t)s") % {"n": item.number, "t": item.title},
           "email/deadline.txt", {"item": item})
+
+
+def suggested(item, users, by, suggestion):
+    _send(users, _("%(who)s suggested a change to #%(n)s") % {"who": by, "n": item.number},
+          "email/suggested.txt", {"item": item, "by": by, "c": suggestion}, exclude=by)
+
+
+def replied(item, users, by, thread, text):
+    _send(users, _("%(who)s replied on #%(n)s") % {"who": by, "n": item.number},
+          "email/replied.txt", {"item": item, "by": by, "c": thread, "text": text}, exclude=by)
+
+
+def decided(item, suggestion, by):
+    _send([suggestion.author], _("Your suggestion on #%(n)s was %(status)s") % {
+        "n": item.number, "status": suggestion.get_status_display().lower()},
+        "email/decided.txt", {"item": item, "by": by, "c": suggestion}, exclude=by)

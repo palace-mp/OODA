@@ -132,7 +132,6 @@
       {% endfor %}
       <td class="{% if item.is_overdue %}overdue{% endif %} nowrap">{{ item.deadline|date:"j M"|default:"" }}</td>
       <td class="right meta nowrap">
-        {% if item.entry_count %}<span title="{{ item.entry_count|count_label:'entry' }}">{{ item.entry_count }} ✎</span>{% endif %}
         {% if item.open_comments %}<span title="{{ item.open_comments|count_label:'comment' }}">{{ item.open_comments }} ❝</span>{% endif %}
       </td>
     </tr>

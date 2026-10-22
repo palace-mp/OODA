@@ -11,7 +11,7 @@ from django.utils.translation import gettext as _, ngettext
 register = template.Library()
 
 URL = re.compile(r"(https?://[^\s<]+[^\s<.,;:!?)\]'\"])")
-MENTION = re.compile(r"(?<![\w@&])@([\w.-]+)")
+MENTION = re.compile(r"(?<![\w@&])@([\w-]+(?:\.[\w-]+)*)")
 REF = re.compile(r"(?<![\w&/])#(\d+)\b")
 
 
