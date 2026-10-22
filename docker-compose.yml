@@ -4,6 +4,7 @@
 services:
   web:
     build: .
+    image: ooda:latest
     env_file: .env
     volumes:
       - data:/data
@@ -11,7 +12,7 @@ services:
 
   # Sends deadline reminders. Runs the same image once an hour.
   reminders:
-    build: .
+    image: ooda:latest
     env_file: .env
     volumes:
       - data:/data
