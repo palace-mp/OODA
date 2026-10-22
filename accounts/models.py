@@ -35,6 +35,7 @@ class User(AbstractUser):
     last_name = None
     email = models.EmailField(_("e-mail"), unique=True)
     name = models.CharField(_("name"), max_length=80)
+    is_agent = models.BooleanField(_("AI agent"), default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]

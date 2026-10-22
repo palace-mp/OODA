@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from django.core import mail
@@ -434,3 +435,80 @@ class PhaseDocumentTests(Base):
         from .document import template, tidy
 
         self.assertEqual(tidy("<h3>A?</h3><p>yes</p>" + template("observe")), "<h3>A?</h3><p>yes</p>")
+
+
+class AgentTests(Base):
+    def setUp(self):
+        super().setUp()
+        from accounts.models import Membership as M
+
+        self.ada = User.objects.create_user("ada@agents.ooda.local", None, name="Ada", is_agent=True)
+        self.ada_m = M.objects.create(workspace=self.ws, user=self.ada)
+        self.doc_item = self.item("Printer", body=(
+            "<h3>What happened?</h3><p>The printer jams often. We should buy a new one.</p>"
+            "<h3>How often, how many?</h3><p><br></p>"
+        ))
+        self.doc_item.assignees.add(self.bo)
+        doc = self.doc_item.document
+        doc.status = Document.REVIEW
+        doc.submitted_at = timezone.now() - timedelta(minutes=1)
+        doc.save()
+
+    def agent(self, use_claude=False):
+        from .agent import Agent
+
+        return Agent(self.ada, self.ada_m, use_claude, log=lambda m: None)
+
+    def test_rules_review_once_and_anchor_in_the_text(self):
+        self.agent().run_once()
+        notes = list(Comment.objects.filter(author=self.ada).order_by("pk"))
+        self.assertEqual([(c.kind, c.quote) for c in notes], [
+            ("comment", "often"), ("suggestion", "We should buy a new one."),
+            ("comment", "The printer jams often. We should buy a new one."),
+        ])
+        self.assertEqual(notes[1].prefix, "The printer jams often. ")
+        self.assertEqual([m.to for m in mail.outbox], [["bo@example.com"]])  # the suggestion, to the assignee
+        self.agent().run_once()
+        self.assertEqual(Comment.objects.filter(author=self.ada).count(), 3)  # not twice
+
+    def test_agent_cannot_edit(self):
+        self.assertFalse(self.doc_item.can_edit(self.ada, self.ada_m))
+
+    def test_answers_when_someone_replies_or_mentions_it(self):
+        self.agent().run_once()
+        thread = Comment.objects.filter(author=self.ada).first()
+        Reply.objects.create(comment=thread, body="About twice a week.", author=self.bo)
+        other = Comment.objects.create(item=self.doc_item, document=self.doc_item.document, quote="jams",
+                                       body="@ada what do you think?", author=self.bo)
+        self.agent().run_once()
+        self.assertEqual(thread.replies.last().author, self.ada)
+        self.assertEqual(other.replies.get().author, self.ada)
+        self.agent().run_once()
+        self.assertEqual(thread.replies.count(), 2)  # waits for the next human message
+
+    def test_claude_notes_are_checked_against_the_text(self):
+        from unittest import mock
+
+        from . import agent
+
+        reply = {"notes": [
+            {"kind": "suggestion", "quote": "We should buy a new one.", "replacement": "", "comment": "A proposal."},
+            {"kind": "comment", "quote": "not in the document", "replacement": "", "comment": "Dropped."},
+        ]}
+        fake = mock.MagicMock()
+        fake.return_value.beta.messages.create.return_value = mock.Mock(
+            stop_reason="end_turn", content=[mock.Mock(type="text", text=json.dumps(reply))])
+        with mock.patch("anthropic.Anthropic", fake):
+            self.agent(use_claude=True).run_once()
+        kwargs = fake.return_value.beta.messages.create.call_args.kwargs
+        self.assertEqual(kwargs["model"], agent.MODEL)
+        self.assertIn("Observe phase", kwargs["system"])
+        self.assertEqual(list(Comment.objects.filter(author=self.ada).values_list("quote", flat=True)),
+                         ["We should buy a new one."])
+
+    def test_command_creates_the_agent(self):
+        call_command("agent", "--once", "--rules", "--name", "Bert", stdout=open("/dev/null", "w"))
+        bert = User.objects.get(name="Bert")
+        self.assertTrue(bert.is_agent)
+        self.assertFalse(bert.has_usable_password())
+        self.assertTrue(Comment.objects.filter(author=bert).exists())

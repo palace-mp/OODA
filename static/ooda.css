@@ -362,6 +362,7 @@ mark.s.active, ins.s-ins.active { background: var(--accent-soft); }
 .thread.orphan { opacity: 0.8; }
 .thread.closed { background: transparent; }
 .thread-head { margin: 0 0 0.35rem; }
+.ai { font: 600 0.58rem/1 var(--sans); letter-spacing: 0.08em; color: var(--orient); border: 1px solid currentColor; border-radius: 2px; padding: 0.12rem 0.25rem; vertical-align: 0.12em; }
 .thread-head strong { color: var(--ink-2); font-weight: 600; }
 .thread .change { margin: 0 0 0.4rem; line-height: 1.5; }
 .thread .change del { color: var(--accent); text-decoration-thickness: 1px; }

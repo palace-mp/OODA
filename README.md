@@ -31,6 +31,19 @@ export DEBUG=1
 
 Tester: `DEBUG=1 .venv/bin/python manage.py test`
 
+## AI-agent
+
+En agent är en vanlig medlem i kontot, markerad med **AI**. Den granskar dokument som skickats på granskning ("Submit for review"): kommenterar stycken och föreslår ändringar. Den svarar också i trådar den startat eller där någon skriver `@ada`. Agenten redigerar aldrig själv, det är människor som godkänner eller avvisar förslagen.
+
+```sh
+export DEBUG=1
+.venv/bin/python manage.py agent            # kör tills du trycker Ctrl+C, tittar efter arbete var 15:e sekund
+.venv/bin/python manage.py agent --once     # en runda och sedan klart
+.venv/bin/python manage.py agent --name Bert   # en till agent, med eget namn och @bert
+```
+
+Agenten tänker med **Claude** (`claude-opus-5-5`) om det finns Anthropic-uppgifter, till exempel `export ANTHROPIC_API_KEY=...`. Annars använder den några enkla inbyggda regler (vaga ord som "ofta", slutsatser i en observation, saknade källor), så att flödet går att prova utan nyckel. `--rules` tvingar fram reglerna.
+
 ## Driftsätta på ooda.obrydd.com
 
 Det som behövs är en liten Linux-server med Docker, t.ex. Hetzner CX22.

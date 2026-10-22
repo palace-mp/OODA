@@ -3,7 +3,7 @@
   data-comment="{{ c.pk }}" data-kind="{{ c.kind }}" data-quote="{{ c.quote }}" data-prefix="{{ c.prefix }}"
   {% if c.is_suggestion %}data-replacement="{{ c.replacement }}"{% endif %}{% if c.is_open %} data-open{% endif %}>
   <p class="thread-head meta">
-    <strong>{{ c.author.name|default:_("someone") }}</strong> · {{ c.created_at|date:"j M, H:i" }}
+    <strong>{{ c.author.name|default:_("someone") }}</strong>{% if c.author.is_agent %} <span class="ai" title="{% translate 'AI agent' %}">AI</span>{% endif %} · {{ c.created_at|date:"j M, H:i" }}
     {% if not c.is_open %} · <span class="status s-{{ c.status }}">{{ c.get_status_display }}{% if c.closed_by %} {% translate "by" %} {{ c.closed_by.name }}{% endif %}</span>{% endif %}
   </p>
   {% if c.is_suggestion %}
@@ -15,7 +15,7 @@
 
   {% for r in c.replies.all %}
   <div class="reply">
-    <p class="meta"><strong>{{ r.author.name|default:_("someone") }}</strong> · {{ r.created_at|date:"j M, H:i" }}</p>
+    <p class="meta"><strong>{{ r.author.name|default:_("someone") }}</strong>{% if r.author.is_agent %} <span class="ai" title="{% translate 'AI agent' %}">AI</span>{% endif %} · {{ r.created_at|date:"j M, H:i" }}</p>
     <div class="comment-body">{{ r.body|rich }}</div>
   </div>
   {% endfor %}

@@ -19,7 +19,8 @@ def mentioned_users(text, workspace):
 
 
 def _send(users, subject, template, context, exclude=None):
-    for user in {u for u in users if u and u != exclude and u.is_active}:
+    # Agents read the board directly; they get no e-mail.
+    for user in {u for u in users if u and u != exclude and u.is_active and not u.is_agent}:
         body = render_to_string(template, {**context, "user": user, "site_url": settings.SITE_URL})
         send_mail(subject, body, None, [user.email], fail_silently=True)
 

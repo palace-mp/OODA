@@ -1,0 +1,289 @@
+"""An AI agent that takes part like any member: it reads documents sent for
+review, comments on passages, suggests changes and answers in its threads.
+
+It never edits a document itself; people accept or reject what it proposes.
+With Anthropic credentials it asks Claude. Without them it falls back to a few
+plain rules, so the flow can be tried out offline.
+"""
+
+import json
+import os
+import re
+from dataclasses import dataclass
+from html import unescape
+from pathlib import Path
+
+from . import notify
+from .document import GUIDES, plain_text
+from .models import Comment, Document, Reply
+
+MODEL = "claude-opus-5-5"
+
+# What a good document looks like in each phase, from the reviewer's side.
+CRITERIA = {
+    "observe": (
+        "An observation states what was seen, as it is: what happened, where and when, how often, "
+        "and how we know (a source, a count, who saw it). It does not explain, judge or propose. "
+        "Point out conclusions, proposals, vague quantities and missing sources."
+    ),
+    "orient": (
+        "An orientation interprets the observation: possible explanations, context that matters, and "
+        "what we don't know yet. Point out single explanations presented as certain, missing "
+        "alternatives, and claims the observation does not support."
+    ),
+    "decide": (
+        "A decision names the options considered, the one chosen, why, and what would make us change "
+        "our minds. Point out a missing reason, options not weighed, and decisions too vague to act on."
+    ),
+    "act": (
+        "An action report says what was done and what came of it, concretely enough that the next "
+        "observation can start from it. Point out missing results, dates and what to observe next."
+    ),
+}
+
+
+@dataclass
+class Note:
+    kind: str  # "comment" or "suggestion"
+    quote: str
+    comment: str
+    replacement: str = ""
+
+
+def blocks(html, headings=True):
+    """The text of each paragraph-like element, as the browser's textContent sees it."""
+    out = []
+    for tag, inner in re.findall(r"<(p|h2|h3|li|blockquote)>(.*?)</\1>", html or "", re.S):
+        if re.search(r"<(p|h2|h3|li|blockquote)>", inner):
+            continue  # holds other blocks; those are listed on their own
+        if headings or tag not in ("h2", "h3"):
+            out.append(unescape(re.sub(r"<[^>]+>", "", inner)))
+    return out
+
+
+def anchor(html, quote):
+    """(quote, prefix) if `quote` occurs within one paragraph, else None."""
+    quote = (quote or "").strip()
+    if not quote:
+        return None
+    for text in blocks(html):
+        at = text.find(quote)
+        if at >= 0:
+            return quote, text[max(0, at - 60):at]
+    return None
+
+
+# --- Reviewing --------------------------------------------------------------
+
+
+def has_credentials():
+    return bool(
+        os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        or (Path.home() / ".config" / "anthropic").exists()
+    )
+
+
+def claude_review(doc, input_doc):
+    import anthropic
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "notes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["comment", "suggestion"]},
+                        "quote": {"type": "string"},
+                        "replacement": {"type": "string"},
+                        "comment": {"type": "string"},
+                    },
+                    "required": ["kind", "quote", "replacement", "comment"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["notes"],
+        "additionalProperties": False,
+    }
+    system = (
+        "You review a shared document in a case-handling tool built on the OODA loop "
+        "(Observe, Orient, Decide, Act). You take part like a careful colleague: you comment on "
+        "passages and suggest concrete rewordings; people decide what to accept.\n\n"
+        f"This document belongs to the {doc.get_phase_display()} phase. {CRITERIA[doc.phase]}\n\n"
+        "Return at most four notes, the ones that matter most; none if the document is good. Each note "
+        "quotes an exact passage copied character for character from a single paragraph. A suggestion "
+        "gives the text to put in place of the quote; a comment asks a question or points something out "
+        "and leaves replacement empty. Keep comments to one or two sentences, in the language the "
+        "document is written in. Leave the template's question headings alone."
+    )
+    parts = [f"Title: {doc.item.title}"]
+    if input_doc:
+        parts.append(f"Input, the {input_doc.get_phase_display()} document before this one:\n{plain_text(input_doc.body)}")
+    parts.append("The document to review, one paragraph per line:\n" + "\n".join(blocks(doc.body)))
+
+    client = anthropic.Anthropic()
+    response = client.beta.messages.create(
+        model=MODEL,
+        max_tokens=16000,
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+        output_config={"effort": "medium", "format": {"type": "json_schema", "schema": schema}},
+        system=system,
+        messages=[{"role": "user", "content": "\n\n".join(parts)}],
+    )
+    if response.stop_reason == "refusal":
+        return []
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    data = json.loads(text) if text else {"notes": []}
+    return [Note(n["kind"], n["quote"], n["comment"], n["replacement"]) for n in data["notes"]]
+
+
+JUDGEMENT = re.compile(
+    r"\b(should|must|need to|needs to|have to|has to|we fix|solve|because|obviously|probably|I think|"
+    r"bör|måste|borde|behöver|eftersom|troligen|uppenbarligen|jag tror)\b", re.I)
+VAGUE = re.compile(r"\b(often|many|some|several|a lot|lots of|always|never|ofta|många|några|flera|alltid|aldrig)\b", re.I)
+
+
+def rule_review(doc, input_doc):
+    """A few fixed checks, used when Claude isn't available."""
+    notes = []
+    texts = [t for t in blocks(doc.body, headings=False) if t.strip()]
+    for text in texts:
+        for sentence in re.split(r"(?<=[.!?])\s+", text):
+            if doc.phase == "observe" and JUDGEMENT.search(sentence):
+                notes.append(Note(
+                    "suggestion", sentence.strip(),
+                    "This reads as a conclusion or a proposal rather than an observation. "
+                    "Could it move to Orient or Decide, keeping only what was actually seen here?",
+                ))
+            elif VAGUE.search(sentence):
+                word = VAGUE.search(sentence).group(0)
+                notes.append(Note("comment", word, f"How {word.lower()} exactly? A number or a period makes this easier to act on."))
+    if doc.phase == "observe" and not re.search(r"\d", " ".join(texts)):
+        first = next((t for t in texts if not t.endswith("?")), None)
+        if first:
+            notes.append(Note("comment", first, "Is there a number, a date or a source to go with this? How do we know?"))
+    unique = {}
+    for note in notes:
+        unique.setdefault(note.quote, note)
+    return list(unique.values())[:4]
+
+
+def review(doc, use_claude):
+    input_doc = doc.previous()
+    notes = claude_review(doc, input_doc) if use_claude else rule_review(doc, input_doc)
+    return notes
+
+
+def claude_reply(thread, doc):
+    import anthropic
+
+    lines = [f"Passage: {thread.quote}"] if thread.quote else []
+    if thread.is_suggestion:
+        lines.append(f"Suggested instead: {thread.replacement}")
+    lines.append(f"{thread.author.name}: {thread.body}")
+    lines += [f"{r.author.name if r.author else 'someone'}: {r.body}" for r in thread.replies.all()]
+    client = anthropic.Anthropic()
+    response = client.beta.messages.create(
+        model=MODEL,
+        max_tokens=4000,
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+        output_config={"effort": "low"},
+        system=(
+            "You take part in a comment thread on a shared document in a tool built on the OODA loop. "
+            f"The document is in the {doc.get_phase_display()} phase: {GUIDES[doc.phase]} "
+            "Answer the latest message briefly, in one to three sentences, in the language of the thread. "
+            "Be concrete; agree or concede when the other person has a point. Plain text only."
+        ),
+        messages=[{"role": "user", "content": "Document:\n" + plain_text(doc.body) + "\n\nThread:\n" + "\n".join(lines)}],
+    )
+    if response.stop_reason == "refusal":
+        return ""
+    return next((b.text for b in response.content if b.type == "text"), "").strip()
+
+
+def rule_reply(thread, doc):
+    return "Thanks, noted. The people assigned decide what to keep; I'll look again if the text changes."
+
+
+# --- One round --------------------------------------------------------------
+
+
+class Agent:
+    def __init__(self, user, membership, use_claude, log=print):
+        self.user = user
+        self.membership = membership
+        self.use_claude = use_claude
+        self.log = log
+
+    def run_once(self):
+        workspace = self.membership.workspace
+        for doc in Document.objects.filter(item__workspace=workspace, status=Document.REVIEW,
+                                           item__merged_into=None).select_related("item"):
+            if doc.is_current and not self.reviewed(doc):
+                self.review(doc)
+        for thread in self.threads_waiting():
+            self.answer(thread)
+
+    def reviewed(self, doc):
+        mine = doc.comments.filter(author=self.user)
+        if doc.submitted_at:
+            mine = mine.filter(created_at__gte=doc.submitted_at)
+        return mine.exists()
+
+    def review(self, doc):
+        item = doc.item
+        self.log(f"Reviewing #{item.number} {item.title} ({doc.get_phase_display()})")
+        notes = review(doc, self.use_claude)
+        made = 0
+        for note in notes:
+            found = anchor(doc.body, note.quote)
+            if not found:
+                continue
+            quote, prefix = found
+            suggestion = note.kind == "suggestion"
+            c = Comment.objects.create(
+                item=item, document=doc, author=self.user, quote=quote, prefix=prefix,
+                kind=Comment.SUGGESTION if suggestion else Comment.COMMENT,
+                replacement=note.replacement if suggestion else "", body=note.comment.strip(),
+            )
+            if suggestion:
+                editors = list(item.assignees.all()) or [
+                    m.user for m in item.workspace.memberships.filter(role="owner").select_related("user")]
+                notify.suggested(item, editors, self.user, c)
+            made += 1
+        if not made:
+            # Leave a trace so the same version isn't reviewed again.
+            Comment.objects.create(item=item, document=doc, author=self.user, status=Comment.RESOLVED,
+                                   body="Read it; nothing to add.")
+        self.log(f"  {made} comment(s) and suggestion(s)")
+
+    def threads_waiting(self):
+        """Open threads it started or is @mentioned in, where someone else spoke last."""
+        handle = re.compile(rf"@{re.escape(self.user.handle)}\b", re.I)
+        workspace = self.membership.workspace
+        candidates = Comment.objects.filter(
+            item__workspace=workspace, status=Comment.OPEN, document__isnull=False,
+        ).select_related("item", "document", "author")
+        for c in candidates:
+            if not c.document.is_current:
+                continue
+            replies = list(c.replies.select_related("author"))
+            involved = c.author_id == self.user.pk or handle.search(c.body) or any(handle.search(r.body) for r in replies)
+            if not involved:
+                continue
+            last_author = replies[-1].author_id if replies else c.author_id
+            if last_author != self.user.pk:
+                yield c
+
+    def answer(self, thread):
+        text = claude_reply(thread, thread.document) if self.use_claude else rule_reply(thread, thread.document)
+        if not text:
+            return
+        Reply.objects.create(comment=thread, body=text, author=self.user)
+        people = {thread.author, *[r.author for r in thread.replies.select_related("author")]}
+        notify.replied(thread.item, people, self.user, thread, text)
+        self.log(f"Answered a thread on #{thread.item.number}")
