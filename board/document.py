@@ -57,7 +57,11 @@ def from_entry(entry):
 # What each phase is about, shown above its document.
 GUIDES = {
     "observe": gettext_lazy("Describe what you see, as it is — not what should be done about it."),
-    "orient": gettext_lazy("What does it mean? Explanations, context, and what we don't know yet."),
+    "orient": gettext_lazy(
+        "Back the observation up with knowledge: internal and external data, hard numbers and soft "
+        "signals, history and projections. Make it comparable, and end with hypotheses Decide can "
+        "design experiments around."
+    ),
     "decide": gettext_lazy("What do we do, and why? Options, the choice, and what would change our minds."),
     "act": gettext_lazy("What was done, and what came of it? This is what the next observation starts from."),
 }
@@ -67,7 +71,15 @@ def template(phase):
     """A new document starts with the questions its phase asks."""
     questions = {
         "observe": [_("What happened?"), _("Where and when?"), _("How often, how many?"), _("How do we know?")],
-        "orient": [_("What could explain it?"), _("What else matters here?"), _("What don't we know yet?")],
+        "orient": [
+            _("What do our own data say? Numbers, logs, sales, support"),
+            _("What do outside sources say? Research, benchmarks, the market"),
+            _("What do people say? Interviews, conversations, impressions"),
+            _("Has this happened before, and where is it heading?"),
+            _("Compared to what? Baseline, earlier periods, peers"),
+            _("Hypotheses: what could explain it, and how could we test it?"),
+            _("What don't we know yet?"),
+        ],
         "decide": [_("Options"), _("Decision"), _("Why"), _("What would make us change our minds?")],
         "act": [_("What we did"), _("What happened"), _("What to observe next")],
     }.get(phase, [])

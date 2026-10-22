@@ -372,7 +372,7 @@ class PhaseDocumentTests(Base):
         second = item.document
         self.assertNotEqual(first.pk, second.pk)
         self.assertEqual(second.phase, ORIENT)
-        self.assertIn("<h3>What could explain it?</h3>", second.body)
+        self.assertIn("<h3>What do our own data say? Numbers, logs, sales, support</h3>", second.body)
         self.assertEqual(second.previous(), first)
         first.refresh_from_db()
         self.assertEqual(first.status, Document.DONE)
@@ -512,3 +512,42 @@ class AgentTests(Base):
         self.assertTrue(bert.is_agent)
         self.assertFalse(bert.has_usable_password())
         self.assertTrue(Comment.objects.filter(author=bert).exists())
+
+
+class OrientReviewTests(Base):
+    def orient_doc(self, body):
+        from .document import template
+
+        item = self.item("Churn")
+        item.advance(self.anna)
+        doc = item.document
+        doc.body = body + template("orient")
+        doc.save()
+        return doc
+
+    def quotes(self, doc):
+        from .agent import rule_review
+
+        return {n.quote: n.comment for n in rule_review(doc, None)}
+
+    def test_asks_for_data_source_and_hypotheses(self):
+        notes = self.quotes(self.orient_doc("<p>Customers seem unhappy with the new flow.</p>"))
+        text = notes["Customers seem unhappy with the new flow."]
+        self.assertIn("backed up", text)
+        self.assertIn("Hypotheses: what could explain it, and how could we test it?", notes)
+
+    def test_asks_for_comparison_when_a_number_stands_alone(self):
+        notes = self.quotes(self.orient_doc(
+            "<p>Churn is 7% according to the billing report.</p>"))
+        self.assertIn("Compared to what?", notes["Churn is 7% according to the billing report."])
+
+    def test_backed_up_and_comparable_passes(self):
+        from .document import template
+
+        doc = self.orient_doc("")
+        doc.body = template("orient").replace(
+            "<h3>Hypotheses: what could explain it, and how could we test it?</h3><p><br></p>",
+            "<h3>Hypotheses: what could explain it, and how could we test it?</h3><p>Solo users skip it.</p>",
+        ).replace("<p><br></p>", "<p>Churn is 7%, compared to 4% last year, according to the billing report.</p>", 1)
+        doc.save()
+        self.assertEqual(self.quotes(doc), {})

@@ -27,9 +27,13 @@ CRITERIA = {
         "Point out conclusions, proposals, vague quantities and missing sources."
     ),
     "orient": (
-        "An orientation interprets the observation: possible explanations, context that matters, and "
-        "what we don't know yet. Point out single explanations presented as certain, missing "
-        "alternatives, and claims the observation does not support."
+        "Orientation fills in knowledge around the observation: internal data (our own numbers, logs, "
+        "sales, support), external data (research, benchmarks, the market), hard numbers and soft "
+        "information (interviews, impressions), history and projections. Its output is used in the "
+        "Decide phase to design experiments, so it must be backed up and comparable. Ask for the "
+        "source behind claims, for numbers where there are only impressions, for a comparison "
+        "(baseline, earlier period, peers) where a number stands alone, for the kind of knowledge "
+        "that is missing, and for hypotheses concrete enough to test."
     ),
     "decide": (
         "A decision names the options considered, the one chosen, why, and what would make us change "
@@ -50,15 +54,32 @@ class Note:
     replacement: str = ""
 
 
-def blocks(html, headings=True):
-    """The text of each paragraph-like element, as the browser's textContent sees it."""
+def tagged_blocks(html):
+    """(tag, text) for each paragraph-like element, the text as the browser's textContent sees it."""
     out = []
     for tag, inner in re.findall(r"<(p|h2|h3|li|blockquote)>(.*?)</\1>", html or "", re.S):
         if re.search(r"<(p|h2|h3|li|blockquote)>", inner):
             continue  # holds other blocks; those are listed on their own
-        if headings or tag not in ("h2", "h3"):
-            out.append(unescape(re.sub(r"<[^>]+>", "", inner)))
+        out.append((tag, unescape(re.sub(r"<[^>]+>", "", inner))))
     return out
+
+
+def blocks(html, headings=True):
+    return [text for tag, text in tagged_blocks(html) if headings or tag not in ("h2", "h3")]
+
+
+def section(html, starts):
+    """The heading starting with one of `starts`, and the text written under it."""
+    heading, text = None, []
+    for tag, value in tagged_blocks(html):
+        if tag in ("h2", "h3"):
+            if heading:
+                break
+            if value.lower().startswith(starts):
+                heading = value
+        elif heading:
+            text.append(value)
+    return heading, " ".join(text).strip()
 
 
 def anchor(html, quote):
@@ -146,6 +167,12 @@ JUDGEMENT = re.compile(
 VAGUE = re.compile(r"\b(often|many|some|several|a lot|lots of|always|never|ofta|många|några|flera|alltid|aldrig)\b", re.I)
 
 
+COMPARISON = re.compile(
+    r"\b(compared|than|vs\.?|versus|baseline|last (year|month|week|quarter)|average|median|benchmark|"
+    r"jämfört|än|snitt|genomsnitt|förra (året|månaden|veckan|kvartalet)|i fjol)\b", re.I)
+SOURCE = re.compile(r"\b(source|according to|data from|report|survey|study|enligt|källa|rapport|undersökning|studie)\b", re.I)
+
+
 def rule_review(doc, input_doc):
     """A few fixed checks, used when Claude isn't available."""
     notes = []
@@ -161,14 +188,37 @@ def rule_review(doc, input_doc):
             elif VAGUE.search(sentence):
                 word = VAGUE.search(sentence).group(0)
                 notes.append(Note("comment", word, f"How {word.lower()} exactly? A number or a period makes this easier to act on."))
-    if doc.phase == "observe" and not re.search(r"\d", " ".join(texts)):
-        first = next((t for t in texts if not t.endswith("?")), None)
-        if first:
-            notes.append(Note("comment", first, "Is there a number, a date or a source to go with this? How do we know?"))
+    first = next((t for t in texts if not t.endswith("?")), None)
+    numbers = re.search(r"\d", " ".join(texts))
+    if doc.phase == "observe" and first and not numbers:
+        notes.append(Note("comment", first, "Is there a number, a date or a source to go with this? How do we know?"))
+    if doc.phase == "orient" and first:
+        notes += orient_rules(doc, texts, first, numbers)
     unique = {}
     for note in notes:
         unique.setdefault(note.quote, note)
     return list(unique.values())[:4]
+
+
+def orient_rules(doc, texts, first, numbers):
+    notes = []
+    joined = " ".join(texts)
+    if not numbers:
+        notes.append(Note("comment", first, (
+            "Can this be backed up? A number from our own data, an outside source or a benchmark "
+            "would make it something Decide can build an experiment on.")))
+    else:
+        with_number = next(s for t in texts for s in re.split(r"(?<=[.!?])\s+", t) if re.search(r"\d", s))
+        if not COMPARISON.search(joined):
+            notes.append(Note("comment", with_number.strip(), (
+                "Compared to what? An earlier period, a baseline or peers makes this number comparable.")))
+    if "href=" not in (doc.body or "") and not SOURCE.search(joined):
+        notes.append(Note("comment", first, "Where does this come from? A link or a named source lets others check it."))
+    hypotheses, written = section(doc.body, ("hypotes", "hypothes"))
+    if hypotheses and not written:
+        notes.append(Note("comment", hypotheses, (
+            "Which explanations could Decide design an experiment around? Even one testable hypothesis helps.")))
+    return notes
 
 
 def review(doc, use_claude):
