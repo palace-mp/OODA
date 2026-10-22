@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "Settings" %}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>{% translate "Settings" %}</h1>
+
+  {% if is_owner %}
+  <form method="post" class="row">
+    {% csrf_token %}
+    <label class="field grow">{% translate "Name of the board" %}{{ form.name }}</label>
+    <button>{% translate "Save" %}</button>
+  </form>
+  {% endif %}
+
+  <section id="people">
+    <h2>{% translate "People" %}</h2>
+    <table class="items compact">
+      {% for m in memberships %}
+      <tr>
+        <td>{{ m.user.name }} <span class="meta">{{ m.user.email }}</span></td>
+        <td class="meta">{{ m.get_role_display }}</td>
+        <td class="right">
+          {% if is_owner and m.user != user %}
+          <form method="post" action="{% url 'change_member' m.pk %}" class="inline">{% csrf_token %}
+            {% if m.is_owner %}<button class="link" name="action" value="member">{% translate "make member" %}</button>
+            {% else %}<button class="link" name="action" value="owner">{% translate "make owner" %}</button>{% endif %}
+            <button class="link" name="action" value="remove" data-confirm="{% translate 'Remove this person from the board?' %}">{% translate "remove" %}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    {% if is_owner %}
+    <h3>{% translate "Invitation links" %}</h3>
+    <p class="meta">{% translate "Anyone with a link can create a user and join, until it expires (two weeks) or you withdraw it." %}</p>
+    <ul class="plain invites">
+      {% for invite in invites %}{% if invite.is_valid %}
+      <li>
+        <input readonly value="{{ site_url }}{% url 'join' invite.token %}" data-copy aria-label="{% translate 'Invitation link' %}">
+        <span class="meta">{% blocktranslate with d=invite.expires_at|date:"j M" n=invite.uses %}until {{ d }} · used {{ n }}×{% endblocktranslate %}</span>
+        <form method="post" action="{% url 'revoke_invite' invite.pk %}" class="inline">{% csrf_token %}<button class="link">{% translate "withdraw" %}</button></form>
+      </li>
+      {% endif %}{% endfor %}
+    </ul>
+    <form method="post" action="{% url 'create_invite' %}">{% csrf_token %}<button>{% translate "New invitation link" %}</button></form>
+    {% endif %}
+  </section>
+
+  <section id="taxonomy">
+    <h2>{% translate "Taxonomy" %}</h2>
+    <p class="meta">{% translate "Fields that sort items into categories — area, customer, type. Each has a fixed set of options. Filter and group the board by them." %}</p>
+    {% for field in fields %}
+    <div class="taxon">
+      {% if is_owner %}
+      <form method="post" action="{% url 'change_field' field.pk %}" class="row">{% csrf_token %}
+        <input name="name" value="{{ field.name }}" class="h3" aria-label="{% translate 'Field name' %}">
+        <label class="check"><input type="checkbox" name="allow_many" {% if field.allow_many %}checked{% endif %}> {% translate "several per item" %}</label>
+        <button class="link" name="action" value="rename">{% translate "save" %}</button>
+        <button class="link" name="action" value="delete" data-confirm="{% translate 'Delete this field and its options?' %}">{% translate "delete" %}</button>
+      </form>
+      {% else %}<h3>{{ field.name }}</h3>{% endif %}
+      <ul class="plain options">
+        {% for o in field.choices.all %}
+        <li>
+          {% if is_owner %}
+          <form method="post" action="{% url 'change_option' o.pk %}" class="row">{% csrf_token %}
+            <select name="color" class="swatch c-{{ o.color }}" aria-label="{% translate 'Colour' %}" data-autosubmit-one>
+              {% for c in colors %}<option value="{{ c }}" {% if c == o.color %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+            <input name="label" value="{{ o.label }}" aria-label="{% translate 'Option' %}">
+            <button class="link">{% translate "save" %}</button>
+            <button class="link" name="action" value="delete">×</button>
+          </form>
+          {% else %}<span class="tag c-{{ o.color }}">{{ o.label }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if is_owner %}
+      <form method="post" action="{% url 'change_field' field.pk %}" class="row">{% csrf_token %}
+        <input name="options" placeholder="{% translate 'New option' %}" aria-label="{% translate 'New option' %}">
+        <button class="link" name="action" value="add">{% translate "add" %}</button>
+      </form>
+      {% endif %}
+    </div>
+    {% empty %}
+    <p class="empty small">{% translate "No fields yet." %}</p>
+    {% endfor %}
+
+    {% if is_owner %}
+    <details class="edit">
+      <summary>{% translate "New field" %}</summary>
+      <form method="post" action="{% url 'add_field' %}" class="stack">{% csrf_token %}
+        <label class="field">{% translate "Name" %}{{ field_form.name }}</label>
+        <label class="field">{{ field_form.options.label }}{{ field_form.options }}<small class="meta">{{ field_form.options.help_text }}</small></label>
+        <label class="check">{{ field_form.allow_many }} {% translate "Allow several per item" %}</label>
+        <div class="row"><button class="primary">{% translate "Add field" %}</button></div>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+
+  <section id="public">
+    <h2>{% translate "Public page" %}</h2>
+    {% if workspace.is_public %}
+      <p>{% translate "The board is published. Anyone with this address can read everything on it:" %}</p>
+      <p><input readonly value="{{ public_url }}" data-copy aria-label="{% translate 'Public address' %}"> <a href="{{ public_url }}" target="_blank">{% translate "open" %}</a></p>
+    {% else %}
+      <p class="meta">{% translate "Publish a read-only copy of the board at a secret address you can share." %}</p>
+    {% endif %}
+    {% if is_owner %}
+    <form method="post" action="{% url 'publish' %}" class="row">{% csrf_token %}
+      {% if workspace.is_public %}
+        <button name="action" value="unpublish">{% translate "Unpublish" %}</button>
+        <button class="link" name="action" value="new-link" data-confirm="{% translate 'The old address stops working. Continue?' %}">{% translate "new address" %}</button>
+      {% else %}
+        <button name="action" value="publish">{% translate "Publish" %}</button>
+      {% endif %}
+    </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

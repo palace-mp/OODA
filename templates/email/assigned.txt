@@ -1,0 +1,4 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with who=by.name n=item.number t=item.title %}{{ who }} assigned #{{ n }} to you: {{ t }}{% endblocktranslate %}
+
+{{ site_url }}{{ item.get_absolute_url }}
+{% endautoescape %}

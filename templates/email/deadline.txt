@@ -1,0 +1,4 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with n=item.number t=item.title d=item.deadline|date:"j F" %}#{{ n }} {{ t }} is due {{ d }}.{% endblocktranslate %}
+
+{{ site_url }}{{ item.get_absolute_url }}
+{% endautoescape %}

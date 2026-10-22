@@ -1,0 +1,22 @@
+{% load i18n %}
+{% if form.non_field_errors %}<p class="error">{{ form.non_field_errors|join:" " }}</p>{% endif %}
+<label class="field">{{ form.title.label }}{{ form.title }}{{ form.title.errors }}</label>
+<label class="field">{{ form.body.label }}{{ form.body }}</label>
+<div class="grid2">
+  <label class="field">{{ form.deadline.label }}{{ form.deadline }}{{ form.deadline.errors }}</label>
+  <label class="field">{{ form.parent.label }}{{ form.parent }}{{ form.parent.errors }}</label>
+</div>
+<label class="check">{{ form.is_priority }} {% translate "Prioritised" %}</label>
+<fieldset class="field">
+  <legend>{{ form.assignees.label }}</legend>
+  <div class="choices">{% for box in form.assignees %}<label class="check">{{ box.tag }} {{ box.choice_label }}</label>{% endfor %}</div>
+</fieldset>
+{% for f in form.taxonomy_fields %}
+  {% if f.field.widget.input_type == "checkbox" %}
+  <fieldset class="field"><legend>{{ f.label }}</legend>
+    <div class="choices">{% for box in f %}<label class="check">{{ box.tag }} {{ box.choice_label }}</label>{% endfor %}</div>
+  </fieldset>
+  {% else %}
+  <label class="field">{{ f.label }}{{ f }}</label>
+  {% endif %}
+{% endfor %}

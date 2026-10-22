@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% load i18n ooda %}
+{% block title %}{% translate "Tempo" %}{% endblock %}
+{% block content %}
+<div class="narrow wide-ish">
+  <h1>{% translate "Tempo" %}</h1>
+  <p class="lede">{% translate "How fast the loop turns. Shorter is better: whoever observes, orients, decides and acts faster sets the pace." %}</p>
+  <p class="views">
+    <a href="?days=7" {% if days == 7 %}aria-current="true"{% endif %}>{% translate "7 days" %}</a>
+    <a href="?days=30" {% if days == 30 %}aria-current="true"{% endif %}>{% translate "30 days" %}</a>
+    <a href="?days=90" {% if days == 90 %}aria-current="true"{% endif %}>{% translate "90 days" %}</a>
+  </p>
+
+  <div class="figures">
+    <div class="figure">
+      <p class="big">{{ loop_median|span }}</p>
+      <p class="label">{% translate "Typical loop, Observe to Observe" %}</p>
+      {% if loop_previous %}<p class="meta">{% blocktranslate with t=loop_previous|span %}{{ t }} the period before{% endblocktranslate %}</p>{% endif %}
+    </div>
+    <div class="figure">
+      <p class="big">{{ loops_closed }}</p>
+      <p class="label">{% translate "Loops completed" %}</p>
+      <p class="meta">{% blocktranslate with n=loops_closed_previous %}{{ n }} the period before{% endblocktranslate %}</p>
+    </div>
+  </div>
+
+  <h2>{% translate "Time in each phase" %}</h2>
+  <p class="meta">{% translate "Median time an item stays in a phase before it moves on." %}</p>
+  <table class="phases">
+    {% for row in phase_rows %}
+    <tr>
+      <th><span class="phase p-{{ row.key }}">{{ row.label }}</span></th>
+      <td class="bar"><span class="p-{{ row.key }}" style="width: {{ row.share|floatformat:0 }}%"></span></td>
+      <td class="nowrap">{{ row.median|span }}</td>
+      <td class="meta nowrap">
+        {% if row.faster == True %}<span class="better">↓ {% translate "faster" %}</span>{% elif row.faster == False %}<span class="worse">↑ {% translate "slower" %}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h2>{% translate "Loops completed per week" %}</h2>
+  <div class="weeks" role="img" aria-label="{% translate 'Loops completed per week, last 8 weeks' %}">
+    {% for w in weeks %}
+    <div class="week" title="{{ w.count }}">
+      <span class="n">{{ w.count }}</span>
+      <span class="col" style="height: {{ w.height|floatformat:0 }}%"></span>
+      <span class="d">{{ w.start|date:"j/n" }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <h2>{% translate "Standing still longest" %}</h2>
+  {% if stuck %}
+  <table class="items compact">
+    {% for s in stuck %}
+    <tr>
+      <td class="num">{{ s.item.number }}</td>
+      <td class="title"><a href="{{ s.item.get_absolute_url }}">{{ s.item.title }}</a></td>
+      <td><span class="phase p-{{ s.phase }}">{{ s.get_phase_display }}</span></td>
+      <td class="right nowrap">{{ s.duration|span }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty small">{% translate "Nothing is waiting." %}</p>{% endif %}
+</div>
+{% endblock %}

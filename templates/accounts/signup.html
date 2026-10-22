@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "Create an account" %}{% endblock %}
+{% block content %}
+<div class="narrow tiny-page">
+  <h1>{% if first %}{% translate "Welcome" %}{% else %}{% translate "Create an account" %}{% endif %}</h1>
+  {% if first %}<p class="lede">{% translate "You are the first one here. Name the board and create your user — you will be its owner." %}</p>{% endif %}
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {% include "_form.html" %}
+    <div class="row"><button class="primary">{% translate "Create" %}</button></div>
+  </form>
+</div>
+{% endblock %}

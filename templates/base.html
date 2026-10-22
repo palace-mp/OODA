@@ -1,0 +1,45 @@
+{% load static i18n %}<!doctype html>
+{% get_current_language as LANG %}
+<html lang="{{ LANG }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% if workspace %}{{ workspace.name }}{% else %}OODA{% endif %}{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5.5' fill='none' stroke='%231d1c1a' stroke-width='1.6'/></svg>">
+  <link rel="stylesheet" href="{% static 'ooda.css' %}">
+  <script src="{% static 'ooda.js' %}" defer></script>
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+  <header class="masthead">
+    <div class="wrap">
+      {% if public %}
+        <a class="wordmark" href="{% url 'public_index' token %}">{{ workspace.name }}</a>
+        <span class="meta">{% translate "Published board · read only" %}</span>
+      {% elif workspace %}
+        <a class="wordmark" href="{% url 'board:index' %}">{{ workspace.name }}</a>
+        {% with name=request.resolver_match.url_name %}
+        <nav>
+          <a href="{% url 'board:index' %}" {% if name == 'index' or name == 'item' or name == 'new' %}aria-current="page"{% endif %}>{% translate "Board" %}</a>
+          <a href="{% url 'board:inbox' %}" {% if name == 'inbox' %}aria-current="page"{% endif %}>{% translate "Inbox" %}{% if inbox_count %} <span class="count">{{ inbox_count }}</span>{% endif %}</a>
+          <a href="{% url 'board:tempo' %}" {% if name == 'tempo' %}aria-current="page"{% endif %}>{% translate "Tempo" %}</a>
+          <a href="{% url 'settings' %}" {% if name == 'settings' %}aria-current="page"{% endif %}>{% translate "Settings" %}</a>
+          <a href="{% url 'profile' %}" class="me" title="{{ user.email }}" {% if name == 'profile' %}aria-current="page"{% endif %}>{{ user.name }}</a>
+        </nav>
+        {% endwith %}
+      {% else %}
+        <a class="wordmark" href="/">OODA</a>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if messages %}
+  <div class="wrap notices" role="status">
+    {% for message in messages %}<p class="notice {{ message.tags }}">{{ message }}</p>{% endfor %}
+  </div>
+  {% endif %}
+
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

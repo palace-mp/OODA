@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "New item" %}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <p class="kicker"><a href="{% url 'board:index' %}">←</a> {% translate "New item" %}</p>
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {% include "board/_item_fields.html" %}
+    <div class="row"><button class="primary">{% translate "Create" %}</button></div>
+  </form>
+</div>
+{% endblock %}

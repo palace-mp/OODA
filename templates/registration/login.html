@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "Sign in" %}{% endblock %}
+{% block content %}
+<div class="narrow tiny-page">
+  <h1>{% translate "Sign in" %}</h1>
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {% include "_form.html" %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="row"><button class="primary">{% translate "Sign in" %}</button>
+      <a class="quiet" href="{% url 'password_reset' %}">{% translate "Forgot your password?" %}</a></div>
+  </form>
+</div>
+{% endblock %}

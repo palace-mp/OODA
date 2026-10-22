@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% load i18n ooda %}
+{% block bodyclass %}page-board{% endblock %}
+{% block content %}
+
+<form class="filters" method="get" data-autosubmit>
+  <input type="hidden" name="view" value="{{ view }}">
+  {% if view == "board" %}<input type="hidden" name="group" value="{{ group }}">{% endif %}
+  <input class="search" type="search" name="q" value="{{ filters.q }}" placeholder="{% translate 'Search' %}" aria-label="{% translate 'Search' %}">
+
+  <select name="phase" aria-label="{% translate 'Phase' %}">
+    <option value="">{% translate "Any phase" %}</option>
+    {% for key, label in phases %}<option value="{{ key }}" {% if filters.phase == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+
+  <select name="who" aria-label="{% translate 'Assigned' %}">
+    <option value="">{% translate "Anyone" %}</option>
+    <option value="me" {% if filters.who == "me" %}selected{% endif %}>{% translate "Me" %}</option>
+    <option value="none" {% if filters.who == "none" %}selected{% endif %}>{% translate "Nobody" %}</option>
+    {% for p in people %}<option value="{{ p.pk }}" {% if filters.who == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+  </select>
+
+  <select name="prio" aria-label="{% translate 'Priority' %}">
+    <option value="">{% translate "Any priority" %}</option>
+    <option value="1" {% if filters.prio == "1" %}selected{% endif %}>{% translate "Prioritised" %}</option>
+  </select>
+
+  <select name="due" aria-label="{% translate 'Deadline' %}">
+    <option value="">{% translate "Any deadline" %}</option>
+    <option value="overdue" {% if filters.due == "overdue" %}selected{% endif %}>{% translate "Overdue" %}</option>
+    <option value="week" {% if filters.due == "week" %}selected{% endif %}>{% translate "Within a week" %}</option>
+    <option value="none" {% if filters.due == "none" %}selected{% endif %}>{% translate "No deadline" %}</option>
+  </select>
+
+  {% for field in fields %}
+  <select name="opt" aria-label="{{ field.name }}">
+    <option value="">{{ field.name }}</option>
+    {% for o in field.choices.all %}<option value="{{ o.pk }}" {% if filters.opt|contains:o.pk %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
+  </select>
+  {% endfor %}
+
+  <select name="state" aria-label="{% translate 'State' %}">
+    <option value="open" {% if filters.state == "open" %}selected{% endif %}>{% translate "Open" %}</option>
+    <option value="done" {% if filters.state == "done" %}selected{% endif %}>{% translate "Done" %}</option>
+    <option value="all" {% if filters.state == "all" %}selected{% endif %}>{% translate "Open and done" %}</option>
+  </select>
+
+  {% if filters.active %}<a class="quiet" href="?view={{ view }}{% if view == 'board' %}&group={{ group }}{% endif %}">{% translate "Clear" %}</a>{% endif %}
+  <noscript><button>{% translate "Filter" %}</button></noscript>
+</form>
+
+<div class="viewbar">
+  <div class="views">
+    <a href="{% query view='table' group='' %}" {% if view != "board" %}aria-current="true"{% endif %}>{% translate "Table" %}</a>
+    <a href="{% query view='board' %}" {% if view == "board" %}aria-current="true"{% endif %}>{% translate "Board" %}</a>
+    {% if view == "board" and fields %}
+      <span class="sep">{% translate "by" %}</span>
+      <a href="{% query group='phase' %}" {% if group == "phase" %}aria-current="true"{% endif %}>{% translate "phase" %}</a>
+      {% for field in fields %}<a href="{% query group=field.pk %}" {% if group == field.pk|stringformat:"s" %}aria-current="true"{% endif %}>{{ field.name|lower }}</a>{% endfor %}
+    {% endif %}
+  </div>
+  <span class="meta">{% blocktranslate count n=items|length %}{{ n }} item{% plural %}{{ n }} items{% endblocktranslate %}</span>
+</div>
+
+{% if not public %}
+<form class="quickadd" method="post" action="{% url 'board:create' %}">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <input name="title" placeholder="{% translate 'Add something that needs doing…' %}" aria-label="{% translate 'New item' %}" autocomplete="off" required maxlength="200">
+  <button>{% translate "Add" %}</button>
+  <a class="quiet" href="{% url 'board:new' %}">{% translate "with details" %}</a>
+</form>
+{% endif %}
+
+
+{% if view == "board" %}
+<div class="columns" {% if not public %}data-dnd data-group="{{ group }}"{% endif %}>
+  {% for col in columns %}
+  <section class="column" data-value="{{ col.key }}">
+    <h2><span class="dot {% if col.color %}c-{{ col.color }}{% else %}p-{{ col.key }}{% endif %}"></span>{{ col.label }} <span class="meta">{{ col.items|length }}</span></h2>
+    <ol class="cards">
+      {% for item in col.items %}
+      <li class="card{% if item.is_priority %} prio{% endif %}{% if item.is_done %} done{% endif %}" {% if not public %}draggable="true" data-move="{% url 'board:move' item.number %}"{% endif %}>
+        <a href="{% item_url item %}">
+          <span class="num">#{{ item.number }}</span>
+          <span class="title">{{ item.title }}</span>
+        </a>
+        <div class="card-meta">
+          {% if group != "phase" %}<span class="phase p-{{ item.phase }}">{{ item.get_phase_display }}</span>{% endif %}
+          {% if item.cycle > 1 %}<span title="{% translate 'Loop' %}">↻{{ item.cycle }}</span>{% endif %}
+          {% if item.is_blocked %}<span class="blocked">{% translate "waiting" %}</span>{% endif %}
+          {% if item.deadline %}<span class="{% if item.is_overdue %}overdue{% endif %}">{{ item.deadline|date:"j M" }}</span>{% endif %}
+          {% for p in item.assignees.all %}<span class="who" title="{{ p.name }}">{{ p|initials }}</span>{% endfor %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endfor %}
+</div>
+
+{% else %}
+{% if items %}
+<table class="items">
+  <thead>
+    <tr>
+      <th class="num">#</th>
+      <th>{% translate "Item" %}</th>
+      <th>{% translate "Phase" %}</th>
+      <th>{% translate "Who" %}</th>
+      {% for field in fields %}<th>{{ field.name }}</th>{% endfor %}
+      <th>{% translate "Deadline" %}</th>
+      <th class="right"><span class="sr">{% translate "Activity" %}</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr class="{% if item.is_priority %}prio{% endif %}{% if item.is_done %} done{% endif %}">
+      <td class="num">{{ item.number }}</td>
+      <td class="title" style="--depth: {{ item.depth|default:0 }}">
+        <a href="{% item_url item %}">{{ item.title }}</a>
+        {% if item.is_priority %}<span class="flag" title="{% translate 'Prioritised' %}">{% translate "priority" %}</span>{% endif %}
+        {% if item.is_blocked %}<span class="blocked" title="{% for d in item.open_dependencies %}#{{ d.number }} {{ d.title }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% translate "waiting" %}</span>{% endif %}
+        {% if item.parent and not item.depth %}<span class="meta">{% translate "under" %} <a href="{% item_url item.parent %}">#{{ item.parent.number }}</a></span>{% endif %}
+      </td>
+      <td class="phase-cell">
+        <span class="phase p-{{ item.phase }}">{{ item.get_phase_display }}</span>{% if item.cycle > 1 %}<span class="loopn" title="{% translate 'Loop' %}">↻{{ item.cycle }}</span>{% endif %}
+      </td>
+      <td class="people">{% for p in item.assignees.all %}<span class="who" title="{{ p.name }}">{{ p|initials }}</span>{% empty %}<span class="meta">—</span>{% endfor %}</td>
+      {% for field in fields %}
+      <td>{% for o in item|options_for:field %}<span class="tag c-{{ o.color }}">{{ o.label }}</span>{% endfor %}</td>
+      {% endfor %}
+      <td class="{% if item.is_overdue %}overdue{% endif %} nowrap">{{ item.deadline|date:"j M"|default:"" }}</td>
+      <td class="right meta nowrap">
+        {% if item.entry_count %}<span title="{{ item.entry_count|count_label:'entry' }}">{{ item.entry_count }} ✎</span>{% endif %}
+        {% if item.open_comments %}<span title="{{ item.open_comments|count_label:'comment' }}">{{ item.open_comments }} ❝</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">
+  {% if filters.active %}{% translate "Nothing matches those filters." %}
+  {% elif public %}{% translate "Nothing here yet." %}
+  {% else %}{% translate "Nothing on the board yet. Write the first thing that needs doing above, or note an observation in the inbox." %}{% endif %}
+</p>
+{% endif %}
+{% endif %}
+{% endblock %}

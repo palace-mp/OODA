@@ -1,0 +1,40 @@
+# Runs OODA behind Caddy, which gets and renews the HTTPS certificate itself.
+# Usage: cp .env.example .env, fill it in, then `docker compose up -d --build`.
+
+services:
+  web:
+    build: .
+    env_file: .env
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+  # Sends deadline reminders. Runs the same image once an hour.
+  reminders:
+    build: .
+    env_file: .env
+    volumes:
+      - data:/data
+    command: sh -c 'while true; do python manage.py send_reminders; sleep 3600; done'
+    depends_on: [web]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-ooda.obrydd.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web]
+    restart: unless-stopped
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:

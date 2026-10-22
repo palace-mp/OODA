@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+<div class="narrow tiny-page">
+  <h1>{% translate "Not part of a board" %}</h1>
+  <p>{% translate "Your user isn't part of any board. Ask an owner for an invitation link." %}</p>
+  <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link">{% translate "Sign out" %}</button></form>
+</div>
+{% endblock %}

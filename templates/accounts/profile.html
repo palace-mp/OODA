@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{{ user.name }}{% endblock %}
+{% block content %}
+<div class="narrow tiny-page">
+  <h1>{{ user.name }}</h1>
+  <p class="meta">{% blocktranslate with h=user.handle %}Others mention you as @{{ h }}.{% endblocktranslate %}</p>
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {% include "_form.html" %}
+    <div class="row"><button class="primary">{% translate "Save" %}</button>
+      <a class="quiet" href="{% url 'password_change' %}">{% translate "Change password" %}</a></div>
+  </form>
+  <hr>
+  <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>{% translate "Sign out" %}</button></form>
+</div>
+{% endblock %}

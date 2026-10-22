@@ -1,0 +1,4 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with n=item.number t=item.title m=finished.number %}#{{ n }} {{ t }} no longer waits for anything — #{{ m }} is done.{% endblocktranslate %}
+
+{{ site_url }}{{ item.get_absolute_url }}
+{% endautoescape %}
