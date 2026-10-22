@@ -33,31 +33,28 @@ Tester: `DEBUG=1 .venv/bin/python manage.py test`
 
 ## Driftsätta på ooda.obrydd.com
 
-Det som behövs är en liten Linux-server med Docker, t.ex. Hetzner CX22.
-
-1. Peka DNS: skapa en `A`-post för `ooda.obrydd.com` som pekar på serverns IP-adress.
-2. Installera Docker på servern och klona repot.
-3. Skapa konfigurationen:
-   ```sh
-   cp .env.example .env
-   ```
-   Fyll i `SECRET_KEY`, `SETUP_KEY` och e-postuppgifterna.
-4. Starta:
-   ```sh
-   docker compose up -d --build
-   ```
-   Caddy hämtar ett HTTPS-certifikat automatiskt.
-5. Öppna `https://ooda.obrydd.com/start/?key=<SETUP_KEY>` och skapa dig själv som ägare.
-6. Bjud in andra under **Settings → People → New invitation link**.
-
-**Uppdatera:** `git pull && docker compose up -d --build`. Databasen migreras automatiskt.
-
-**Backup:** all data ligger i SQLite-filen i volymen `data`. Till exempel varje natt:
+Det som behövs är en Ubuntu 24.04-server, t.ex. Hetzner CX22. Logga in med SSH och kör:
 
 ```sh
-docker compose exec web python -c "import sqlite3; s=sqlite3.connect('/data/ooda.sqlite3'); d=sqlite3.connect('/data/backup.sqlite3'); s.backup(d)"
-docker compose cp web:/data/backup.sqlite3 ./backups/ooda-$(date +%F).sqlite3
+curl -fsSL https://raw.githubusercontent.com/palace-mp/ooda/main/deploy/setup.sh -o setup.sh
+sudo bash setup.sh
 ```
+
+Skriptet gör följande:
+- installerar Docker
+- sätter upp en brandvägg och automatiska säkerhetsuppdateringar
+- hämtar koden till `/opt/ooda`
+- skapar `.env` med slumpade nycklar och frågar efter e-postuppgifter (de kan lämnas tomma)
+- startar tjänsten
+- lägger upp nattlig backup till `/var/backups/ooda`
+
+Till sist skrivs serverns IP-adress och länken för att skapa första ägaren ut.
+
+Peka sedan DNS för `ooda.obrydd.com` mot IP-adressen. Caddy hämtar HTTPS-certifikatet automatiskt.
+
+**Uppdatera:** `sudo bash /opt/ooda/deploy/update.sh`
+
+**Ändra inställningar**, t.ex. e-post: redigera `/opt/ooda/.env` och kör `docker compose up -d` i `/opt/ooda`.
 
 ### E-post
 
