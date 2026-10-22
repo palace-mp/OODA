@@ -32,7 +32,7 @@ class Command(BaseCommand):
         today = timezone.localdate()
 
         def make(title, phase, who, area_label, days_ago, body="", prio=False, deadline=None, cycle=1, parent=None):
-            item = Item.objects.create(workspace=ws, title=title, body=body, created_by=m, is_priority=prio,
+            item = Item.objects.create(workspace=ws, title=title, created_by=m, is_priority=prio,
                                        deadline=deadline, parent=parent)
             item.options.add(opts[area_label])
             item.assignees.add(*who)
@@ -47,6 +47,10 @@ class Command(BaseCommand):
                 sp.started_at = start + gap * i
                 sp.ended_at = start + gap * (i + 1) if i < len(spans) - 1 else None
                 sp.save()
+            if body:
+                doc = item.document
+                doc.body = body
+                doc.save()
             return item
 
         onboarding = make(
@@ -67,13 +71,31 @@ class Command(BaseCommand):
             ),
             prio=True, deadline=today + timedelta(days=5), cycle=2,
         )
-        c1 = Comment.objects.create(item=onboarding, quote="fewer customers finish setting up", prefix="Since the new sign-up flow, ",
+        history = {
+            ("observe", 1): "<h3>What happened?</h3><p>Fewer new customers finish setting up their first board "
+                            "since the sign-up flow changed on 1 September.</p><h3>How do we know?</h3>"
+                            "<p>The funnel shows 41% stop at the step where they invite their team.</p>",
+            ("orient", 1): "<p>Most who stop work alone. Asking for a team before they have seen any value "
+                           "feels like a wall.</p>",
+            ("decide", 1): "<p>Make the invite step skippable and move it to after the first item.</p>",
+            ("act", 1): "<p>Shipped the skippable step on 7 October.</p>",
+            ("observe", 2): "<p>Drop-off at the invite step is down to 18%, but more people now stop at "
+                            "\u201ccreate first item\u201d.</p>",
+        }
+        for (phase, cycle), html in history.items():
+            onboarding.documents.filter(phase=phase, cycle=cycle).update(body=html, status="done")
+        doc = onboarding.document
+        doc.status = "review"
+        doc.submitted_by = m
+        doc.submitted_at = now
+        doc.save()
+        c1 = Comment.objects.create(item=onboarding, document=doc, quote="fewer customers finish setting up", prefix="Since the new sign-up flow, ",
                                     body="How many fewer? Let's put the number here.", author=j)
         Reply.objects.create(comment=c1, body="About a third fewer than in August. I'll add the chart.", author=s)
-        Comment.objects.create(item=onboarding, kind="suggestion", quote="two weeks", prefix="Then watch the numbers for ",
+        Comment.objects.create(item=onboarding, document=doc, kind="suggestion", quote="two weeks", prefix="Then watch the numbers for ",
                                replacement="three weeks, so we see a full billing cycle", body="Two weeks misses the monthly payers.",
                                author=j)
-        Comment.objects.create(item=onboarding, quote="Most of those who stop work alone.",
+        Comment.objects.create(item=onboarding, document=doc, quote="Most of those who stop work alone.",
                                body="@martin do we know this from the data or from interviews?", author=s)
         Link.objects.create(item=onboarding, url="https://example.com/funnel", label="Funnel dashboard", added_by=s)
 

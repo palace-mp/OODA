@@ -1,0 +1,5 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with who=by.name n=item.number t=item.title phase=doc.get_phase_display %}{{ who }} asks you to review the {{ phase }} document of #{{ n }} {{ t }}.{% endblocktranslate %}
+
+{% translate "Comment on it or suggest changes:" %}
+{{ site_url }}{{ item.get_absolute_url }}
+{% endautoescape %}

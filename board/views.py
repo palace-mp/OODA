@@ -7,7 +7,7 @@ from django.db.models import Count, Prefetch, Q
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext as _, ngettext
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import member_required
@@ -15,7 +15,7 @@ from accounts.models import Workspace
 
 from . import document, notify
 from .forms import EntryForm, ItemForm, LinkForm, workspace_users
-from .models import OBSERVE, PHASE_ORDER, PHASES, Comment, Entry, Field, FieldOption, Item, Link, PhaseSpan, Reply
+from .models import OBSERVE, PHASE_ORDER, PHASES, Comment, Document, Entry, Field, FieldOption, Item, Link, PhaseSpan, Reply
 
 # --- Board -----------------------------------------------------------------
 
@@ -50,7 +50,7 @@ def filter_items(request, workspace):
     items = item_queryset(workspace)
     if f["q"]:
         q = f["q"]
-        cond = Q(title__icontains=q) | Q(body__icontains=q)
+        cond = Q(title__icontains=q) | Q(documents__body__icontains=q)
         if q.lstrip("#").isdigit():
             cond |= Q(number=int(q.lstrip("#")))
         items = items.filter(cond)
@@ -189,44 +189,67 @@ def get_item(request, number, edit=False):
     return item, None
 
 
-def item_page_context(item, public=False):
+def item_page_context(item, doc=None, public=False):
+    current = item.document
+    doc = doc or current
     spans = list(item.spans.all())
     loop_times = loop_durations(spans)
-    current = next((s for s in reversed(spans) if s.ended_at is None), None)
-    threads = list(item.comments.select_related("author", "closed_by").prefetch_related("replies__author"))
+    span = next((s for s in reversed(spans) if s.ended_at is None), None)
+    threads = list(doc.comments.select_related("author", "closed_by").prefetch_related("replies__author"))
     ancestors, node = [], item.parent
     while node is not None and node not in ancestors and node != item:
         ancestors.insert(0, node)
         node = node.parent
+    loops = {}
+    for d in item.documents_in_order():
+        loops.setdefault(d.cycle, []).append(d)
+    open_suggestions = current.comments.filter(kind=Comment.SUGGESTION, status=Comment.OPEN).count()
+    if open_suggestions:
+        warning = ngettext(
+            "%(n)s suggestion is still open. Move on anyway?",
+            "%(n)s suggestions are still open. Move on anyway?", open_suggestions) % {"n": open_suggestions}
+    elif current.status == Document.DRAFT and document.has_content(current.body):
+        warning = _("This document hasn't been submitted for review. Move on anyway?")
+    else:
+        warning = ""
     return {
         "item": item,
+        "doc": doc,
+        "is_current": doc.pk == current.pk,
+        "input_doc": doc.previous(),
+        "loops": sorted(loops.items()),
+        "guide": document.GUIDES.get(doc.phase),
         "ancestors": ancestors,
         "threads": [c for c in threads if c.is_open],
         "closed_threads": [c for c in threads if not c.is_open],
+        "next_warning": warning,
         "children": item.children.filter(merged_into=None).order_by("is_done", "number"),
         "merged": item.merged.all(),
         "blocks": item.blocks.filter(is_done=False),
         "phases": PHASES,
         "fields": Field.objects.filter(workspace=item.workspace).prefetch_related("choices"),
-        "in_phase_for": current.duration if current else None,
+        "in_phase_for": span.duration if span else None,
         "avg_loop": sum(loop_times, timedelta()) / len(loop_times) if loop_times else None,
         "public": public,
     }
 
 
 @member_required
-def item(request, number):
+def item(request, number, doc_pk=None):
     item, redirect_to = get_item(request, number)
     if redirect_to:
         return redirect_to
-    context = item_page_context(item)
+    doc = get_object_or_404(Document, item=item, pk=doc_pk) if doc_pk else None
+    context = item_page_context(item, doc)
     context.update({
-        "can_edit": item.can_edit(request.user, request.membership),
+        "can_edit": context["is_current"] and item.can_edit(request.user, request.membership),
+        "can_comment": context["is_current"],
         "form": ItemForm(instance=item, workspace=request.workspace),
         "link_form": LinkForm(),
         "candidates": Item.objects.filter(workspace=request.workspace, merged_into=None, is_done=False)
         .exclude(pk=item.pk).order_by("number"),
     })
+    context["can_change"] = item.can_edit(request.user, request.membership)
     return render(request, "board/item.html", context)
 
 
@@ -239,21 +262,42 @@ def save_document(request, number):
         return HttpResponse(status=410)
     if not item.can_edit(request.user, request.membership):
         return HttpResponseForbidden()
+    doc = item.document
     try:
         version = int(request.POST.get("version", ""))
     except ValueError:
         return HttpResponseBadRequest()
-    if version != item.body_version:
-        return JsonResponse({"version": item.body_version}, status=409)
-    old_body = item.body
+    if version != doc.version:
+        return JsonResponse({"version": doc.version}, status=409)
+    old_body = doc.body
     title = request.POST.get("title", "").strip()[:200]
-    if title:
+    if title and title != item.title:
         item.title = title
-    item.body = document.sanitize(request.POST.get("body", ""))
-    item.body_version += 1
-    item.save(update_fields=["title", "body", "body_version", "updated_at"])
-    mention_new(request, item, old_body, item.body)
-    return JsonResponse({"version": item.body_version})
+        item.save(update_fields=["title", "updated_at"])
+    doc.body = document.sanitize(request.POST.get("body", ""))
+    doc.version += 1
+    doc.save(update_fields=["body", "version", "updated_at"])
+    mention_new(request, item, old_body, doc.body)
+    return JsonResponse({"version": doc.version})
+
+
+@member_required
+@require_POST
+def submit_review(request, number):
+    """Ask everyone but the item's creator to comment and suggest changes."""
+    item, redirect_to = get_item(request, number, edit=True)
+    if redirect_to:
+        return redirect_to
+    doc = item.document
+    doc.status = Document.REVIEW
+    doc.submitted_by = request.user
+    doc.submitted_at = timezone.now()
+    doc.save(update_fields=["status", "submitted_by", "submitted_at"])
+    reviewers = [m.user for m in request.workspace.memberships.select_related("user")
+                 if m.user_id != item.created_by_id]
+    notify.review_requested(item, doc, reviewers, request.user)
+    messages.success(request, _("Sent for review."))
+    return redirect(item)
 
 
 def mention_new(request, item, old_html, new_html):
@@ -456,7 +500,7 @@ def comment(request, number):
     if kind == Comment.COMMENT and not body:
         return redirect(item)
     c = Comment.objects.create(
-        item=item, kind=kind, quote=quote, prefix=request.POST.get("prefix", "")[-60:],
+        item=item, document=item.document, kind=kind, quote=quote, prefix=request.POST.get("prefix", "")[-60:],
         replacement=replacement if kind == Comment.SUGGESTION else "", body=body, author=request.user,
     )
     notify.mentioned(item, notify.mentioned_users(body, request.workspace), request.user, body)
@@ -506,14 +550,15 @@ def comment_status(request, pk):
                 version = int(request.POST.get("version", ""))
             except ValueError:
                 return HttpResponseBadRequest()
-            if version != item.body_version:
+            doc = c.document
+            if doc is None or not doc.is_current or version != doc.version:
                 messages.error(request, _("The document changed meanwhile. Try again."))
                 return redirect(item)
-            old_body = item.body
-            item.body = document.sanitize(request.POST.get("body", ""))
-            item.body_version += 1
-            item.save(update_fields=["body", "body_version", "updated_at"])
-            mention_new(request, item, old_body, item.body)
+            old_body = doc.body
+            doc.body = document.sanitize(request.POST.get("body", ""))
+            doc.version += 1
+            doc.save(update_fields=["body", "version", "updated_at"])
+            mention_new(request, item, old_body, doc.body)
         c.close(Comment.ACCEPTED if action == "accept" else Comment.REJECTED, request.user)
         notify.decided(item, c, request.user)
     return redirect(f"{item.get_absolute_url()}#c{c.pk}")
@@ -547,19 +592,19 @@ def file_entry(request, pk):
         phase = {v: k for k, v in Entry.KIND_FOR_PHASE.items()}.get(entry.kind, OBSERVE)
         target = Item.objects.create(
             workspace=request.workspace, title=title[:200], created_by=request.user, phase=phase,
-            body=document.from_text(entry.body),
         )
+        doc = target.document
+        doc.body = document.from_text(entry.body) + doc.body
+        doc.save(update_fields=["body"])
     else:
         target = find_item(request, request.POST.get("into"))
         if target is None:
             messages.error(request, _("No such item."))
             return redirect("board:inbox")
         if target.can_edit(request.user, request.membership):
-            target.body = (target.body or "") + document.from_entry(entry)
-            target.body_version += 1
-            target.save(update_fields=["body", "body_version", "updated_at"])
+            target.document.append(document.from_entry(entry))
         else:
-            Comment.objects.create(item=target, author=entry.author or request.user,
+            Comment.objects.create(item=target, document=target.document, author=entry.author or request.user,
                                    body=f"{entry.get_kind_display()}: {entry.body}")
     entry.delete()
     messages.success(request, _("Filed under #%(n)s.") % {"n": target.number})
@@ -669,11 +714,12 @@ def public_index(request, token):
     return render(request, "board/index.html", context)
 
 
-def public_item(request, token, number):
+def public_item(request, token, number, doc_pk=None):
     workspace = public_workspace(token)
     item = get_object_or_404(Item, workspace=workspace, number=number)
     if item.merged_into_id:
         return redirect("public_item", token=token, number=item.merged_into.number)
-    context = item_page_context(item, public=True)
+    doc = get_object_or_404(Document, item=item, pk=doc_pk) if doc_pk else None
+    context = item_page_context(item, doc, public=True)
     context.update({"workspace": workspace, "token": token})
     return render(request, "board/item.html", context)

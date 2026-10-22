@@ -294,6 +294,25 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .facts-line dt { font: 600 0.62rem var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .facts-line dd { margin: 0.1rem 0 0; font-size: 0.95rem; }
 
+/* Documents: one per phase and loop */
+.doc-nav { margin: 1.2rem 0 0; font: 0.82rem var(--sans); }
+.doc-nav p { margin: 0.15rem 0; display: flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; align-items: baseline; }
+.doc-nav p.older { opacity: 0.7; }
+.doc-nav .meta { min-width: 3.6rem; }
+.doc-nav a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid transparent; }
+.doc-nav a:hover { border-bottom-color: var(--rule-2); }
+.doc-nav a.here { color: var(--phase); border-bottom-color: var(--phase); font-weight: 600; }
+.old-doc { margin: 1.2rem 0 0; padding: 0.6rem 0.9rem; background: var(--accent-soft); font: 0.88rem var(--sans); color: var(--ink-2); }
+.old-doc a { margin-left: 0.6rem; }
+.guide { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.9rem; margin: 1.4rem 0 0; }
+.guide-text { font-style: italic; color: var(--ink-2); }
+.doc-status { font: 0.78rem var(--sans); color: var(--muted); }
+.doc-status.s-review { color: var(--decide); font-weight: 600; }
+.input-doc { margin: 1rem 0 0; max-width: 760px; border-left: 2px solid var(--rule-2); padding: 0.1rem 0 0.1rem 1rem; }
+.input-doc summary { cursor: pointer; font: 0.85rem var(--sans); color: var(--ink-2); }
+.input-doc .input-body { font-size: 0.95rem; color: var(--ink-2); margin-top: 0.8rem; max-height: 22rem; overflow: auto; }
+.input-doc .meta { margin: 0.4rem 0 0.2rem; }
+
 /* Formatting toolbar */
 .toolbar {
   position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 0.15rem;

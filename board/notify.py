@@ -59,3 +59,9 @@ def decided(item, suggestion, by):
     _send([suggestion.author], _("Your suggestion on #%(n)s was %(status)s") % {
         "n": item.number, "status": suggestion.get_status_display().lower()},
         "email/decided.txt", {"item": item, "by": by, "c": suggestion}, exclude=by)
+
+
+def review_requested(item, doc, users, by):
+    _send(users, _("Review asked for: #%(n)s %(t)s (%(phase)s)") % {
+        "n": item.number, "t": item.title, "phase": doc.get_phase_display()},
+        "email/review.txt", {"item": item, "doc": doc, "by": by}, exclude=by)

@@ -20,7 +20,7 @@
   </div>
   {% endfor %}
 
-  {% if not public %}
+  {% if can_comment and not public %}
   <div class="thread-actions">
     {% if c.is_open %}
       {% if c.is_suggestion and can_edit %}

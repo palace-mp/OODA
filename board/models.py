@@ -7,6 +7,8 @@ from django.utils.translation import gettext_lazy as _
 
 from accounts.models import Workspace
 
+from .document import has_content, heading, plain_text, template as document_template
+
 User = settings.AUTH_USER_MODEL
 
 OBSERVE, ORIENT, DECIDE, ACT = "observe", "orient", "decide", "act"
@@ -29,8 +31,6 @@ class Item(models.Model):
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="items")
     number = models.PositiveIntegerField(editable=False)
     title = models.CharField(_("title"), max_length=200)
-    body = models.TextField(_("document"), blank=True)  # sanitised HTML, see board/document.py
-    body_version = models.PositiveIntegerField(default=0, editable=False)
 
     phase = models.CharField(_("phase"), max_length=10, choices=PHASES, default=OBSERVE)
     cycle = models.PositiveIntegerField(_("loop"), default=1)
@@ -72,8 +72,24 @@ class Item(models.Model):
                 self.number = last + 1
                 super().save(*args, **kwargs)
                 PhaseSpan.objects.create(item=self, phase=self.phase, cycle=self.cycle, started_at=self.created_at)
+                self.open_document()
             return
         super().save(*args, **kwargs)
+
+    @property
+    def document(self):
+        """The document for the phase and loop the item is in now."""
+        return self.open_document()
+
+    def open_document(self):
+        doc, _created = Document.objects.get_or_create(
+            item=self, phase=self.phase, cycle=self.cycle,
+            defaults={"body": document_template(self.phase)},
+        )
+        return doc
+
+    def documents_in_order(self):
+        return sorted(self.documents.all(), key=lambda d: (d.cycle, PHASE_ORDER.index(d.phase)))
 
     def can_edit(self, user, membership):
         """Owners, assignees and whoever created the item edit the document directly.
@@ -113,9 +129,14 @@ class Item(models.Model):
         if self.phase == ACT and phase == OBSERVE:
             self.cycle += 1
         PhaseSpan.objects.filter(item=self, ended_at__isnull=True).update(ended_at=now)
+        Document.objects.filter(item=self, status__in=[Document.DRAFT, Document.REVIEW]).update(status=Document.DONE)
         self.phase = phase
         self.save(update_fields=["phase", "cycle", "updated_at"])
         PhaseSpan.objects.create(item=self, phase=phase, cycle=self.cycle, started_at=now, moved_by=by)
+        doc = self.open_document()
+        if doc.status == Document.DONE:  # back to a phase worked on before in this loop
+            doc.status = Document.DRAFT
+            doc.save(update_fields=["status"])
 
     def advance(self, by=None):
         self.set_phase(next_phase(self.phase), by)
@@ -135,9 +156,11 @@ class Item(models.Model):
     def merge_into(self, target, by=None):
         """Fold this item into `target`. Everything said about it moves along."""
         assert target.pk != self.pk and target.workspace_id == self.workspace_id
+        mine, theirs = self.document, target.document
         self.entries.update(item=target)
         self.links.update(item=target)
         self.comments.update(item=target)
+        Comment.objects.filter(document=mine).update(document=theirs)
         self.children.exclude(pk=target.pk).update(parent=target)
         target.assignees.add(*self.assignees.all())
         target.options.add(*self.options.all())
@@ -146,11 +169,8 @@ class Item(models.Model):
             blocked.depends_on.add(target)
         self.blocks.clear()
         self.depends_on.clear()
-        if self.body:
-            from .document import heading
-
-            target.body = (target.body or "") + heading(f"#{self.number} {self.title}") + self.body
-            target.body_version += 1
+        if has_content(mine.body):
+            theirs.append(heading(f"#{self.number} {self.title}") + mine.body)
         target.is_priority = target.is_priority or self.is_priority
         if self.deadline and (not target.deadline or self.deadline < target.deadline):
             target.deadline = self.deadline
@@ -260,6 +280,54 @@ class FieldOption(models.Model):
         return self.label
 
 
+class Document(models.Model):
+    """What was written in one phase of one loop. Each phase starts a new one;
+    the one before is its input, and all of them are kept.
+    """
+
+    DRAFT, REVIEW, DONE = "draft", "review", "done"
+    STATUSES = [(DRAFT, _("Draft")), (REVIEW, _("In review")), (DONE, _("Done"))]
+
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="documents")
+    phase = models.CharField(max_length=10, choices=PHASES)
+    cycle = models.PositiveIntegerField()
+    body = models.TextField(blank=True)  # sanitised HTML, see board/document.py
+    version = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=10, choices=STATUSES, default=DRAFT)
+    submitted_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["item", "phase", "cycle"], name="one_document_per_phase")]
+
+    def __str__(self):
+        return f"#{self.item.number} {self.get_phase_display()} {self.cycle}"
+
+    def get_absolute_url(self):
+        return reverse("board:document", args=[self.item.number, self.pk])
+
+    @property
+    def is_current(self):
+        return self.phase == self.item.phase and self.cycle == self.item.cycle
+
+    @property
+    def text(self):
+        return plain_text(self.body)
+
+    def append(self, html):
+        self.body = (self.body or "") + html
+        self.version += 1
+        self.save(update_fields=["body", "version", "updated_at"])
+
+    def previous(self):
+        """The document this one builds on: the phase before, possibly in the loop before."""
+        docs = self.item.documents_in_order()
+        i = docs.index(self)
+        return docs[i - 1] if i > 0 else None
+
+
 class Comment(models.Model):
     """A margin comment or a suggested change, anchored to a passage of the document.
 
@@ -274,6 +342,7 @@ class Comment(models.Model):
     STATUSES = [(OPEN, _("Open")), (RESOLVED, _("Resolved")), (ACCEPTED, _("Accepted")), (REJECTED, _("Rejected"))]
 
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="comments")
+    document = models.ForeignKey(Document, null=True, blank=True, on_delete=models.CASCADE, related_name="comments")
     kind = models.CharField(max_length=12, choices=KINDS, default=COMMENT)
     quote = models.TextField(blank=True)
     prefix = models.CharField(max_length=60, blank=True)

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from accounts.models import Invite, Membership, User, Workspace
 
-from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Entry, Field, FieldOption, Item, PhaseSpan, Reply
+from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Document, Entry, Field, FieldOption, Item, PhaseSpan, Reply
 
 
 class Base(TestCase):
@@ -20,8 +20,11 @@ class Base(TestCase):
         Membership.objects.create(workspace=self.ws, user=self.bo)
         self.client.force_login(self.anna)
 
-    def item(self, title="Fix the gate", **kw):
-        return Item.objects.create(workspace=self.ws, title=title, created_by=self.anna, **kw)
+    def item(self, title="Fix the gate", body=None, **kw):
+        item = Item.objects.create(workspace=self.ws, title=title, created_by=self.anna, **kw)
+        if body is not None:
+            Document.objects.filter(pk=item.document.pk).update(body=body)
+        return item
 
 
 @override_settings(SETUP_KEY="")
@@ -93,31 +96,29 @@ class InboxTests(Base):
         item = Item.objects.get()
         self.assertEqual(item.title, "Customers churn after onboarding")
         self.assertEqual(item.phase, ORIENT)
-        self.assertEqual(item.body, "<p>Customers churn after onboarding<br>more</p>")
+        self.assertTrue(item.document.body.startswith("<p>Customers churn after onboarding<br>more</p><h3>"))
         self.assertFalse(Entry.objects.exists())
 
     def test_filed_note_is_added_to_the_document(self):
         item = self.item(body="<p>Start</p>")
         entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Gate <stuck>", author=self.bo)
         self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": f"#{item.number}"})
-        item.refresh_from_db()
-        self.assertIn("<strong>Observation:</strong> Gate &lt;stuck&gt;", item.body)
-        self.assertEqual(item.body_version, 1)
+        self.assertIn("<strong>Observation:</strong> Gate &lt;stuck&gt;", item.document.body)
+        self.assertEqual(item.document.version, 1)
 
     def test_member_filing_under_others_item_leaves_a_comment(self):
         item = self.item(body="<p>Start</p>")
         self.client.force_login(self.bo)
         entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Seen it", author=self.bo)
         self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": f"#{item.number}"})
-        item.refresh_from_db()
-        self.assertEqual(item.body, "<p>Start</p>")
-        self.assertEqual(item.comments.get().body, "Observation: Seen it")
+        self.assertEqual(item.document.body, "<p>Start</p>")
+        self.assertEqual(item.document.comments.get().body, "Observation: Seen it")
 
 
 class StructureTests(Base):
     def test_merge_moves_everything(self):
         a, b, c = self.item("A", body="<p>a</p>"), self.item("B", body="<p>details</p>"), self.item("C")
-        Comment.objects.create(item=b, body="hm", author=self.bo)
+        Comment.objects.create(item=b, document=b.document, body="hm", author=self.bo)
         b.assignees.add(self.bo)
         c.depends_on.add(b)
         r = self.client.post(reverse("board:merge", args=[b.number]), {"into": str(a.number)})
@@ -125,8 +126,8 @@ class StructureTests(Base):
         b.refresh_from_db()
         self.assertEqual(b.merged_into, a)
         self.assertTrue(b.is_done)
-        a.refresh_from_db()
-        self.assertEqual(a.body, "<p>a</p><h3>#2 B</h3><p>details</p>")
+        self.assertEqual(a.document.body, "<p>a</p><h3>#2 B</h3><p>details</p>")
+        self.assertEqual(a.document.comments.count(), 1)
         self.assertEqual(a.comments.count(), 1)
         self.assertIn(self.bo, a.assignees.all())
         self.assertIn(a, c.depends_on.all())
@@ -194,10 +195,10 @@ class PageTests(Base):
         field = Field.objects.create(workspace=self.ws, name="Area")
         opt = FieldOption.objects.create(field=field, label="North")
         a.options.add(opt)
-        c = Comment.objects.create(item=a, body="x", quote="see", author=self.bo)
+        c = Comment.objects.create(item=a, document=a.document, body="x", quote="see", author=self.bo)
         Reply.objects.create(comment=c, body="y", author=self.anna)
-        Comment.objects.create(item=a, kind="suggestion", quote="see", replacement="look", author=self.bo)
-        Comment.objects.create(item=a, body="old", status="resolved", author=self.bo)
+        Comment.objects.create(item=a, document=a.document, kind="suggestion", quote="see", replacement="look", author=self.bo)
+        Comment.objects.create(item=a, document=a.document, body="old", status="resolved", author=self.bo)
         for url in [reverse("board:index"), reverse("board:index") + f"?view=board&group={field.pk}",
                     reverse("board:index") + f"?q=A&opt={opt.pk}&who=me&due=week&prio=1&state=all",
                     a.get_absolute_url(), reverse("board:inbox"), reverse("board:tempo"),
@@ -286,14 +287,13 @@ class DocumentTests(Base):
         self.assertEqual(r.json(), {"version": 1})
         self.doc.refresh_from_db()
         self.assertEqual(self.doc.title, "Gate, again")
-        self.assertEqual(self.doc.body, '<h2>Now</h2><p>ok <a rel="noopener noreferrer">l</a></p>')
+        self.assertEqual(self.doc.document.body, '<h2>Now</h2><p>ok <a rel="noopener noreferrer">l</a></p>')
 
     def test_stale_version_is_refused(self):
         self.client.post(self.save, {"body": "<p>one</p>", "version": 0})
         r = self.client.post(self.save, {"body": "<p>two</p>", "version": 0})
         self.assertEqual(r.status_code, 409)
-        self.doc.refresh_from_db()
-        self.assertEqual(self.doc.body, "<p>one</p>")
+        self.assertEqual(self.doc.document.body, "<p>one</p>")
 
     def test_who_may_edit(self):
         self.client.force_login(self.carl)
@@ -323,7 +323,7 @@ class DocumentTests(Base):
         c.refresh_from_db()
         self.doc.refresh_from_db()
         self.assertEqual(c.status, Comment.ACCEPTED)
-        self.assertEqual(self.doc.body, "<p>The gate opens too slowly.</p>")
+        self.assertEqual(self.doc.document.body, "<p>The gate opens too slowly.</p>")
         self.assertEqual(mail.outbox[-1].to, ["carl@example.com"])
 
     def test_editor_rejects_and_author_may_withdraw(self):
@@ -339,20 +339,20 @@ class DocumentTests(Base):
         self.assertEqual(c.status, Comment.REJECTED)
 
     def test_members_cannot_close_others_comments(self):
-        c = Comment.objects.create(item=self.doc, quote="gate", body="?", author=self.anna)
+        c = Comment.objects.create(item=self.doc, document=self.doc.document, quote="gate", body="?", author=self.anna)
         self.client.force_login(self.carl)
         r = self.client.post(reverse("board:comment_status", args=[c.pk]), {"action": "resolve"})
         self.assertEqual(r.status_code, 403)
 
     def test_reply_notifies_the_thread(self):
-        c = Comment.objects.create(item=self.doc, quote="gate", body="?", author=self.carl)
+        c = Comment.objects.create(item=self.doc, document=self.doc.document, quote="gate", body="?", author=self.carl)
         Reply.objects.create(comment=c, body="first", author=self.bo)
         self.client.post(reverse("board:reply", args=[c.pk]), {"body": "Agreed"})
         self.assertEqual(c.replies.count(), 2)
         self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["bo@example.com", "carl@example.com"])
 
     def test_public_page_shows_threads_without_forms(self):
-        Comment.objects.create(item=self.doc, quote="gate", body="Visible remark", author=self.carl)
+        Comment.objects.create(item=self.doc, document=self.doc.document, quote="gate", body="Visible remark", author=self.carl)
         self.ws.is_public = True
         self.ws.save()
         self.client.logout()
@@ -360,3 +360,77 @@ class DocumentTests(Base):
         self.assertContains(r, "Visible remark")
         self.assertNotContains(r, "<form")
         self.assertNotContains(r, "contenteditable")
+
+
+class PhaseDocumentTests(Base):
+    def test_each_phase_gets_its_own_document(self):
+        item = self.item(body="<p>We saw it.</p>")
+        first = item.document
+        self.assertEqual(first.phase, OBSERVE)
+        item.advance(self.anna)
+        second = item.document
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(second.phase, ORIENT)
+        self.assertIn("<h3>What could explain it?</h3>", second.body)
+        self.assertEqual(second.previous(), first)
+        first.refresh_from_db()
+        self.assertEqual(first.status, Document.DONE)
+        self.assertEqual(first.body, "<p>We saw it.</p>")
+        for _ in range(3):
+            item.advance(self.anna)
+        self.assertEqual((item.document.phase, item.document.cycle), (OBSERVE, 2))
+        self.assertEqual(item.documents.count(), 5)
+
+    def test_going_back_reopens_the_earlier_document(self):
+        item = self.item()
+        first = item.document
+        item.advance(self.anna)
+        item.set_phase(OBSERVE, self.anna)
+        self.assertEqual(item.document.pk, first.pk)
+        self.assertEqual(item.document.status, Document.DRAFT)
+
+    def test_review_asks_everyone_but_the_creator(self):
+        item = self.item()
+        carl = User.objects.create_user("carl@example.com", "pw-carl-123!", name="Carl Ny")
+        Membership.objects.create(workspace=self.ws, user=carl)
+        item.assignees.add(self.bo)
+        self.client.force_login(self.bo)
+        self.client.post(reverse("board:review", args=[item.number]))
+        self.assertEqual(item.document.status, Document.REVIEW)
+        self.assertEqual([m.to for m in mail.outbox], [["carl@example.com"]])  # not anna (creator), not bo (sender)
+
+    def test_next_phase_warns_but_does_not_stop(self):
+        item = self.item(body="<p>Written</p>")
+        r = self.client.get(item.get_absolute_url())
+        self.assertIn("submitted for review", r.context["next_warning"])
+        Comment.objects.create(item=item, document=item.document, kind="suggestion", quote="Written",
+                               replacement="Typed", author=self.bo)
+        r = self.client.get(item.get_absolute_url())
+        self.assertIn("1 suggestion is still open", r.context["next_warning"])
+        self.client.post(reverse("board:phase", args=[item.number]), {"phase": "next"})
+        item.refresh_from_db()
+        self.assertEqual(item.phase, ORIENT)
+
+    def test_earlier_documents_are_read_only(self):
+        item = self.item(body="<p>Old observation</p>")
+        old = item.document
+        item.advance(self.anna)
+        r = self.client.get(old.get_absolute_url())
+        self.assertContains(r, "Old observation")
+        self.assertNotContains(r, 'contenteditable="true"')
+        self.assertNotContains(r, 'id="composer"')
+        r = self.client.get(item.get_absolute_url())
+        self.assertContains(r, "Input: the Observe document")
+        self.client.post(reverse("board:comment", args=[item.number]), {"quote": "x", "body": "hi"})
+        self.assertEqual(Comment.objects.get().document, item.document)
+
+    def test_search_looks_in_all_documents(self):
+        item = self.item(body="<p>needle</p>")
+        item.advance(self.anna)
+        r = self.client.get(reverse("board:index"), {"q": "needle"})
+        self.assertEqual([i.pk for i in r.context["items"]], [item.pk])
+
+    def test_tidy_drops_unanswered_questions(self):
+        from .document import template, tidy
+
+        self.assertEqual(tidy("<h3>A?</h3><p>yes</p>" + template("observe")), "<h3>A?</h3><p>yes</p>")
