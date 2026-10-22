@@ -24,10 +24,10 @@ python3 -m venv .venv
 export DEBUG=1
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py demo        # valfritt: exempeldata, demo@example.com / demo-password
-.venv/bin/python manage.py runserver
+.venv/bin/python manage.py runserver 8765   # valfri ledig port
 ```
 
-Öppna http://localhost:8000. Utan demodata kommer du till en sida där du skapar första kontot. E-post skrivs ut i terminalen.
+Öppna http://localhost:8765. OODA har egna cookie-namn, så den stör inte andra appar som körs lokalt på andra portar. Utan demodata kommer du till en sida där du skapar första kontot. E-post skrivs ut i terminalen.
 
 Tester: `DEBUG=1 .venv/bin/python manage.py test`
 
