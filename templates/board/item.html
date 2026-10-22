@@ -9,13 +9,15 @@
   {% if not public %}data-comment-url="{% url 'board:comment' item.number %}"{% endif %}>
 
   <header class="item-head">
-    <p class="kicker">
-      <a href="{% if public %}{% url 'public_index' token %}{% else %}{% url 'board:index' %}{% endif %}">←</a>
-      #{{ item.number }}
-      {% if item.parent %} · {% translate "part of" %} <a href="{% item_url item.parent %}">#{{ item.parent.number }} {{ item.parent.title }}</a>{% endif %}
-      {% if item.is_done %} · <strong>{% translate "done" %}</strong>{% endif %}
-      {% if item.is_priority %} · <span class="flag">{% translate "priority" %}</span>{% endif %}
-    </p>
+    <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+      <ol>
+        <li><a href="{% if public %}{% url 'public_index' token %}{% else %}{% url 'board:index' %}{% endif %}">{% if public %}{{ workspace.name }}{% else %}{% translate "Board" %}{% endif %}</a></li>
+        {% for a in ancestors %}<li><a href="{% item_url a %}">#{{ a.number }} {{ a.title|truncatechars:40 }}</a></li>{% endfor %}
+        <li aria-current="page">#{{ item.number }} {{ item.title|truncatechars:60 }}</li>
+      </ol>
+      {% if item.is_done %}<span class="state">{% translate "done" %}</span>{% endif %}
+      {% if item.is_priority %}<span class="flag">{% translate "priority" %}</span>{% endif %}
+    </nav>
 
     <div class="loop-bar">
       <ol class="stepper" aria-label="{% translate 'OODA phase' %}">
@@ -51,6 +53,7 @@
     </div>
 
     <dl class="facts-line">
+      <div><dt>{% translate "Created by" %}</dt><dd>{{ item.created_by.name|default:"—" }} <span class="meta">{{ item.created_at|date:"j M Y" }}</span></dd></div>
       <div><dt>{% translate "Assigned" %}</dt><dd>{% for p in item.assignees.all %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
       <div><dt>{% translate "Deadline" %}</dt><dd class="{% if item.is_overdue %}overdue{% endif %}">{{ item.deadline|date:"j M Y"|default:"—" }}</dd></div>
       {% for field in fields %}

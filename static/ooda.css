@@ -242,6 +242,15 @@ table.items { font-variant-numeric: tabular-nums; }
 
 .kicker { font: 0.82rem var(--sans); color: var(--muted); margin: 0 0 0.6rem; }
 .kicker a { color: var(--muted); }
+
+.breadcrumb { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.3rem 0.9rem; font: 0.85rem var(--sans); margin: 0 0 0.9rem; }
+.breadcrumb ol { display: flex; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; color: var(--muted); }
+.breadcrumb li + li::before { content: "/"; color: var(--rule-2); margin: 0 0.55rem; }
+.breadcrumb a { color: var(--ink-2); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb [aria-current] { color: var(--muted); }
+.breadcrumb .state { color: var(--act); font-weight: 600; }
+.breadcrumb .flag { margin-left: 0; vertical-align: 0; }
 .item-head h1 { max-width: 24em; }
 .item.done .item-head h1 { color: var(--muted); }
 

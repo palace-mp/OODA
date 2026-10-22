@@ -194,8 +194,13 @@ def item_page_context(item, public=False):
     loop_times = loop_durations(spans)
     current = next((s for s in reversed(spans) if s.ended_at is None), None)
     threads = list(item.comments.select_related("author", "closed_by").prefetch_related("replies__author"))
+    ancestors, node = [], item.parent
+    while node is not None and node not in ancestors and node != item:
+        ancestors.insert(0, node)
+        node = node.parent
     return {
         "item": item,
+        "ancestors": ancestors,
         "threads": [c for c in threads if c.is_open],
         "closed_threads": [c for c in threads if not c.is_open],
         "children": item.children.filter(merged_into=None).order_by("is_done", "number"),
