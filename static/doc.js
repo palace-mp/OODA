@@ -97,11 +97,17 @@
     return m;
   }
 
-  $$(".thread[data-open]", threads).forEach((card) => {
+  $$(".thread", threads).forEach((card) => {
     const id = card.dataset.comment;
     const quote = card.dataset.quote;
     if (!quote) return;
     const loc = locate(quote, card.dataset.prefix);
+    if (!("open" in card.dataset)) {
+      // Resolved threads keep their place next to the text, without highlighting it.
+      if (loc) marks[id] = wrap(loc, () => makeMark(id, "c closed"));
+      else if ($(".anchor-quote", card)) $(".anchor-quote", card).hidden = false;
+      return;
+    }
     if (!loc) {
       // The text has changed since. Show what it was about instead.
       card.classList.add("orphan");
@@ -128,7 +134,7 @@
   // --- Placing threads next to their passage --------------------------------
 
   const wide = () => window.matchMedia("(min-width: 1000px)").matches;
-  const liveCards = () => $$(":scope > .thread", threads);
+  const liveCards = () => $$(":scope > .thread:not([hidden])", threads);
 
   function layout() {
     const cards = liveCards();
@@ -166,6 +172,33 @@
   };
   window.addEventListener("resize", layoutSoon);
   if (document.fonts) document.fonts.ready.then(layoutSoon);
+  // Show all threads, the open ones, or the resolved ones.
+  const filters = $$("[data-filter]");
+  function showThreads(which) {
+    filters.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.filter === which)));
+    $$(".thread", threads).forEach((card) => {
+      const open = "open" in card.dataset;
+      const shown = which === "all" || (which === "open") === open;
+      if (card.dataset.comment !== "new") card.hidden = !shown;
+      $$(`[data-comment="${card.dataset.comment}"]`, doc).forEach((m) => m.classList.toggle("off", !shown));
+    });
+    try {
+      localStorage.setItem("ooda-thread-filter", which);
+    } catch (e) {
+      /* the choice just isn't remembered */
+    }
+    layoutSoon();
+  }
+  filters.forEach((b) => b.addEventListener("click", () => showThreads(b.dataset.filter)));
+  let remembered = "open";
+  try {
+    remembered = localStorage.getItem("ooda-thread-filter") || "open";
+  } catch (e) {
+    /* no storage */
+  }
+  const linked = location.hash.match(/^#c(\d+)$/);
+  if (linked && $(`#c${linked[1]}`) && !("open" in $(`#c${linked[1]}`).dataset)) remembered = "all";
+  if (filters.length) showThreads(remembered);
   layout();
 
   function activate(id) {

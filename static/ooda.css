@@ -351,6 +351,15 @@ ins.s-ins { color: var(--act); text-decoration: underline; text-decoration-thick
 mark.s.active, ins.s-ins.active { background: var(--accent-soft); }
 
 /* Comments and suggestions in the margin */
+.thread-filter { display: flex; gap: 0.2rem; margin: 0 0 0.9rem; font: 0.8rem var(--sans); }
+.thread-filter button { border: 0; padding: 0.25rem 0.55rem; border-radius: 3px; color: var(--muted); font: inherit; }
+.thread-filter button:hover { color: var(--ink); }
+.thread-filter button[aria-pressed="true"] { color: var(--ink); background: var(--sheet); box-shadow: inset 0 0 0 1px var(--rule); }
+.thread-filter .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 0.15rem; }
+mark.c.closed { background: transparent; border-bottom: 1px dotted var(--rule-2); }
+mark.c.closed.active { background: var(--mark); }
+mark.off { background: transparent; color: inherit; text-decoration: none; border-bottom: 0; }
+ins.off { display: none; }
 .threads { position: relative; font-size: 0.92rem; }
 .thread {
   background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 0.75rem 0.9rem 0.7rem;
@@ -399,8 +408,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 .related .phase { margin-left: 0.5rem; }
 .link-form { margin-top: 0.6rem; }
 .link-form input { max-width: 18rem; }
-.closed-threads summary { cursor: pointer; color: var(--muted); font: 0.85rem var(--sans); }
-.closed-list { margin-top: 0.8rem; max-width: 420px; }
 
 /* --- Inbox ------------------------------------------------------------- */
 

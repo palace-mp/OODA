@@ -222,6 +222,7 @@ def item_page_context(item, doc=None, public=False):
         "ancestors": ancestors,
         "threads": [c for c in threads if c.is_open],
         "closed_threads": [c for c in threads if not c.is_open],
+        "thread_total": len(threads),
         "next_warning": warning,
         "children": item.children.filter(merged_into=None).order_by("is_done", "number"),
         "merged": item.merged.all(),

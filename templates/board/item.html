@@ -134,18 +134,22 @@
         data-placeholder="{% if can_edit %}{% translate 'Write here — background, what we see, what done looks like…' %}{% endif %}">{% if is_current %}{{ doc.body|safe }}{% else %}{{ doc.body|tidy }}{% endif %}</div>
     </div>
 
-    <aside class="threads" id="threads" aria-label="{% translate 'Comments and suggestions' %}">
-      {% for c in threads %}{% include "board/_thread.html" %}{% endfor %}
+    <aside class="margin-col" aria-label="{% translate 'Comments and suggestions' %}">
+      {% if threads or closed_threads %}
+      <div class="thread-filter" role="group" aria-label="{% translate 'Show' %}">
+        <button type="button" data-filter="all">{% translate "All" %} <span class="n">{{ thread_total }}</span></button>
+        <button type="button" data-filter="open" aria-pressed="true">{% translate "Open" %} <span class="n">{{ threads|length }}</span></button>
+        <button type="button" data-filter="closed">{% translate "Resolved" %} <span class="n">{{ closed_threads|length }}</span></button>
+      </div>
+      {% endif %}
+      <div class="threads" id="threads">
+        {% for c in threads %}{% include "board/_thread.html" %}{% endfor %}
+        {% for c in closed_threads %}{% include "board/_thread.html" %}{% endfor %}
+      </div>
     </aside>
   </div>
 
   <section class="below">
-    {% if closed_threads %}
-    <details class="closed-threads">
-      <summary>{% blocktranslate count n=closed_threads|length %}{{ n }} resolved comment or suggestion{% plural %}{{ n }} resolved comments and suggestions{% endblocktranslate %}</summary>
-      <div class="closed-list">{% for c in closed_threads %}{% include "board/_thread.html" %}{% endfor %}</div>
-    </details>
-    {% endif %}
 
     {% if children %}
     <h2>{% translate "Sub-items" %}</h2>
