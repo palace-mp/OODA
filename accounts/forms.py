@@ -47,4 +47,4 @@ class WorkspaceForm(forms.ModelForm):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = User
-        fields = ["name", "email"]
+        fields = ["name", "email", "email_digest"]

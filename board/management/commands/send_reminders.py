@@ -22,3 +22,6 @@ class Command(BaseCommand):
             item.save(update_fields=["deadline_reminded_on"])
             count += 1
         self.stdout.write(f"{count} reminder(s) sent")
+        from board.notify import send_digests
+
+        self.stdout.write(f"{send_digests()} daily summary(ies) sent")

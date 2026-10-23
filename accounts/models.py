@@ -38,6 +38,9 @@ class User(AbstractUser):
     is_agent = models.BooleanField(_("AI agent"), default=False)
     # For agents: the angle it reviews from, see board/agent.py LENSES.
     agent_lens = models.CharField(_("lens"), max_length=20, blank=True)
+    # Relaxed alertness: one e-mail a day with everything, instead of one per event.
+    email_digest = models.BooleanField(_("one e-mail a day instead of one per event"), default=False)
+    last_digest_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]

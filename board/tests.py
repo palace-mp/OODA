@@ -1053,3 +1053,23 @@ class OpennessTests(Base):
         self.assertContains(self.client.get(it.get_absolute_url()), "only one so far")
         Comment.objects.create(item=it, document=it.document, body="hm", author=self.bo)
         self.assertNotContains(self.client.get(it.get_absolute_url()), "only one so far")
+
+
+class DigestTests(Base):
+    def test_digest_readers_get_one_mail_a_day(self):
+        from .notify import send_digests
+
+        self.bo.email_digest = True
+        self.bo.save()
+        it = self.item("Pricing")
+        it.assignees.add(self.bo)
+        self.client.post(reverse("board:observe_now", args=[it.number]), {"body": "One"})
+        self.client.post(reverse("board:observe_now", args=[it.number]), {"body": "Two"})
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(send_digests(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("2 things", mail.outbox[0].subject)
+        self.assertIn("One", mail.outbox[0].body)
+        self.client.post(reverse("board:observe_now", args=[it.number]), {"body": "Three"})
+        self.assertEqual(send_digests(), 0)  # not again the same day
+        self.assertEqual(send_digests(timezone.now() + timedelta(days=1)), 1)

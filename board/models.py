@@ -499,3 +499,16 @@ class Lens(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Notice(models.Model):
+    """An e-mail held back for someone who reads one summary a day."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notices")
+    subject = models.CharField(max_length=300)
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]

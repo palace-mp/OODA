@@ -20,9 +20,39 @@ def mentioned_users(text, workspace):
 
 def _send(users, subject, template, context, exclude=None):
     # Agents read the board directly; they get no e-mail.
+    from .models import Notice
+
     for user in {u for u in users if u and u != exclude and u.is_active and not u.is_agent}:
         body = render_to_string(template, {**context, "user": user, "site_url": settings.SITE_URL})
-        send_mail(subject, body, None, [user.email], fail_silently=True)
+        if user.email_digest:
+            Notice.objects.create(user=user, subject=str(subject), body=body)
+        else:
+            send_mail(subject, body, None, [user.email], fail_silently=True)
+
+
+def send_digests(now=None):
+    """One e-mail per person who chose a daily summary, at most once a day."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from .models import Notice
+
+    now = now or timezone.now()
+    sent = 0
+    waiting = Notice.objects.filter(sent_at__isnull=True).select_related("user")
+    for user in {n.user for n in waiting}:
+        if user.last_digest_at and now - user.last_digest_at < timedelta(hours=20):
+            continue
+        notices = [n for n in waiting if n.user_id == user.pk]
+        parts = [f"{n.subject}\n\n{n.body.strip()}" for n in notices]
+        subject = _("Today on the board: %(n)s things") % {"n": len(notices)}
+        send_mail(subject, ("\n\n" + "—" * 20 + "\n\n").join(parts), None, [user.email], fail_silently=True)
+        Notice.objects.filter(pk__in=[n.pk for n in notices]).update(sent_at=now)
+        user.last_digest_at = now
+        user.save(update_fields=["last_digest_at"])
+        sent += 1
+    return sent
 
 
 def assigned(item, users, by):
