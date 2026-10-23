@@ -436,6 +436,16 @@ def use_lens(request, number, pk):
 
 
 @member_required
+def story_page(request, number):
+    item, redirect_to = get_item(request, number)
+    if redirect_to:
+        return redirect_to
+    from . import story
+
+    return render(request, "board/story.html", {"item": item, "episodes": story.episodes(item)})
+
+
+@member_required
 def hypotheses_page(request):
     from . import hypotheses
 
@@ -988,6 +998,16 @@ def public_index(request, token):
     context = board_context(request, workspace, items, filters, public=True)
     context.update({"workspace": workspace, "token": token})
     return render(request, "board/index.html", context)
+
+
+def public_story(request, token, number):
+    from . import story
+
+    workspace = public_workspace(token)
+    item = get_object_or_404(Item, workspace=workspace, number=number, merged_into=None)
+    return render(request, "board/story.html", {
+        "item": item, "episodes": story.episodes(item), "public": True, "token": token, "workspace": workspace,
+    })
 
 
 def public_item(request, token, number, doc_pk=None):

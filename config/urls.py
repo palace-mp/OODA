@@ -32,4 +32,5 @@ urlpatterns = [
     path("p/<str:token>/", board.public_index, name="public_index"),
     path("p/<str:token>/<int:number>/", board.public_item, name="public_item"),
     path("p/<str:token>/<int:number>/doc/<int:doc_pk>/", board.public_item, name="public_document"),
+    path("p/<str:token>/<int:number>/story/", board.public_story, name="public_story"),
 ]

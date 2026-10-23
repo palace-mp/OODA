@@ -67,6 +67,7 @@
       {% endif %}
     </div>
 
+    <p class="story-link"><a href="{% if public %}{% url 'public_story' token item.number %}{% else %}{% url 'board:story' item.number %}{% endif %}">{% translate "Read the story so far" %} →</a></p>
     <dl class="facts-line">
       <div><dt>{% translate "Created by" %}</dt><dd>{{ item.created_by.name|default:"—" }} <span class="meta">{{ item.created_at|date:"j M Y" }}</span></dd></div>
       <div><dt>{% translate "Assigned" %}</dt><dd>{% for p in item.assignees.all %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>

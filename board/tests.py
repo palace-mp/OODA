@@ -1005,3 +1005,23 @@ class ImmeasurableAndUpsideTests(Base):
                     "<ul><li><strong>Experiment 1:</strong> We launched the annual plan.</li></ul>")
         notes = {n.quote: n.comment for n in act_rules(doc)}
         self.assertIn("How did the system respond", notes["We launched the annual plan."])
+
+
+class StoryTests(Base):
+    def test_the_story_tells_each_loop(self):
+        it = self.item("Churn", body="<p>Drop-off doubled in October.</p>")
+        it.advance(self.anna)
+        o = it.document
+        o.body = "<h3>Hypotheses: what could explain it, and how could we test it?</h3><ul><li>The invite step scares solo users.</li></ul>"
+        o.save()
+        it.advance(self.anna)
+        d = it.document
+        d.body = d.body.replace("<li><strong>Hypothesis:</strong> </li>", "<li><strong>Hypothesis:</strong> Skipping the invite helps.</li>", 1)
+        d.save()
+        it.advance(self.anna)
+        it.reorient(self.anna, "Support says solo users never reach the invite step.")
+        r = self.client.get(reverse("board:story", args=[it.number]))
+        self.assertContains(r, "Drop-off doubled in October.")
+        self.assertContains(r, "The invite step scares solo users.")
+        self.assertContains(r, "Skipping the invite helps.")
+        self.assertContains(r, "Support says solo users never reach the invite step.")

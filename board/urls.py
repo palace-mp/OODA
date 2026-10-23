@@ -25,6 +25,7 @@ urlpatterns = [
     path("<int:number>/save/", views.save_document, name="save"),
     path("<int:number>/review/", views.submit_review, name="review"),
     path("<int:number>/verdict/", views.verdict, name="verdict"),
+    path("<int:number>/story/", views.story_page, name="story"),
     path("<int:number>/observe/", views.observe_now, name="observe_now"),
     path("<int:number>/reorient/", views.reorient, name="reorient"),
     path("observation/<int:pk>/noted/", views.observation_noted, name="observation_noted"),
