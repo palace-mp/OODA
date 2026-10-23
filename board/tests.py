@@ -898,3 +898,48 @@ class NestedLoopTests(Base):
         self.assertEqual([i.pk for i in r.context["items"]], [self.child.pk])
         r = self.client.get(reverse("board:index"), {"level": "top"})
         self.assertEqual([i.pk for i in r.context["items"]], [self.parent.pk])
+
+
+class RiskTests(Base):
+    def decide_with_risk(self, signal=""):
+        it = self.item("Pricing")
+        it.advance(self.anna)
+        it.advance(self.anna)
+        d = it.document
+        d.body = d.body.replace("<li><strong>Hypothesis:</strong> </li>",
+                                "<li><strong>Hypothesis:</strong> Annual plans sell.</li>", 1).replace(
+            "<li><strong>What could go wrong:</strong> </li>",
+            "<li><strong>What could go wrong:</strong> Monthly customers churn.</li>").replace(
+            "<li><strong>Early signal:</strong> </li>", f"<li><strong>Early signal:</strong> {signal}</li>")
+        d.save()
+        return it, d
+
+    def test_decide_has_a_risk_block_and_act_a_line_for_it(self):
+        it, d = self.decide_with_risk("Cancellations above 5 a week")
+        self.assertIn("<h3>Risk 1</h3>", d.body)
+        it.advance(self.anna)
+        self.assertIn("<li><strong>Risk 1 — Monthly customers churn:</strong> </li>", it.document.body)
+
+    def test_risks_are_watched_and_judged_in_their_own_words(self):
+        it, d = self.decide_with_risk("Cancellations above 5 a week")
+        r = self.client.get(reverse("board:hypotheses"))
+        self.assertEqual(sorted((h.kind, h.status) for h in r.context["hypotheses"]),
+                         [("experiment", "planned"), ("risk", "watching")])
+        it.advance(self.anna)
+        r = self.client.get(it.get_absolute_url())
+        self.assertContains(r, "Didn&#x27;t happen")
+        self.client.post(reverse("board:verdict", args=[it.number]), {"experiment": "Risk 1", "outcome": "failed"})
+        r = self.client.get(reverse("board:hypotheses"))
+        risk = next(h for h in r.context["hypotheses"] if h.kind == "risk")
+        self.assertEqual(str(risk.status_label), "Happened")
+
+    def test_agent_asks_for_the_early_signal(self):
+        from .agent import rule_review
+
+        it, d = self.decide_with_risk("")
+        for label, value in (("What we do", "Offer annual"), ("How we measure", "Share of annual"),
+                             ("It holds if", "Over 20%"), ("It fails if", "Under 5%"),
+                             ("If it fails, we will", "Drop it")):
+            d.body = d.body.replace(f"<li><strong>{label}:</strong> </li>", f"<li><strong>{label}:</strong> {value}</li>", 1)
+        notes = {n.quote: n.comment for n in rule_review(d, None)}
+        self.assertIn("What would we see first", notes["Early signal:"])

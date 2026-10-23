@@ -283,11 +283,24 @@ def outcomes_for(doc):
     for name, fields in experiments(decide.body).items():
         if any(value for _line, value in fields.values()):
             rows.append({
+                "kind": "experiment",
                 "name": name,
                 "hypothesis": fields.get(labels[0], ("", ""))[1],
-                "fails": fields.get(labels[4], ("", ""))[1],
                 "then": fields.get(labels[5], ("", ""))[1],
                 "verdict": verdicts.get(name),
+                "choices": Verdict.OUTCOMES,
+            })
+    what, signal, then = document.risk_labels()
+    for name, fields in document.risks(decide.body).items():
+        if fields.get(what, ("", ""))[1]:
+            rows.append({
+                "kind": "risk",
+                "name": name,
+                "hypothesis": fields[what][1],
+                "signal": fields.get(signal, ("", ""))[1],
+                "then": fields.get(then, ("", ""))[1],
+                "verdict": verdicts.get(name),
+                "choices": Verdict.RISK_OUTCOMES,
             })
     return rows
 

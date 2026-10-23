@@ -161,23 +161,24 @@
 
   {% if outcomes %}
   <section id="outcomes" class="outcomes">
-    <h2>{% translate "Outcome per experiment" %}</h2>
+    <h2>{% translate "Outcome per experiment and risk" %}</h2>
     <ul class="plain">
       {% for o in outcomes %}
-      <li class="outcome{% if o.verdict %} v-{{ o.verdict.outcome }}{% endif %}">
-        <div class="outcome-text"><strong>{{ o.name }}</strong>{% if o.hypothesis %} — {{ o.hypothesis }}{% endif %}</div>
+      <li class="outcome k-{{ o.kind }}{% if o.verdict %} v-{{ o.verdict.outcome }}{% endif %}">
+        <div class="outcome-text"><strong>{{ o.name }}</strong>{% if o.hypothesis %} — {{ o.hypothesis }}{% endif %}
+          {% if o.signal %}<div class="meta">{% translate "Early signal:" %} {{ o.signal }}</div>{% endif %}</div>
         {% if can_change and is_current %}
         <form method="post" action="{% url 'board:verdict' item.number %}" class="verdicts">{% csrf_token %}
           <input type="hidden" name="experiment" value="{{ o.name }}">
-          {% for key, label in verdict_choices %}
+          {% for key, label in o.choices %}
           <button name="outcome" value="{% if o.verdict.outcome == key %}{% else %}{{ key }}{% endif %}" class="small v-{{ key }}" aria-pressed="{% if o.verdict.outcome == key %}true{% else %}false{% endif %}">{{ label }}</button>
           {% endfor %}
         </form>
         {% else %}
-        <span class="verdict-label">{{ o.verdict.get_outcome_display|default:_("not decided") }}</span>
+        <span class="verdict-label">{% if o.verdict %}{% for key, label in o.choices %}{% if key == o.verdict.outcome %}{{ label }}{% endif %}{% endfor %}{% else %}{% translate "not decided" %}{% endif %}</span>
         {% endif %}
         {% if o.verdict.outcome == "failed" and o.then %}
-        <p class="then">{% translate "Decided in advance — if it fails, we will:" %} <strong>{{ o.then }}</strong></p>
+        <p class="then">{% if o.kind == "risk" %}{% translate "Decided in advance — if we see it, we will:" %}{% else %}{% translate "Decided in advance — if it fails, we will:" %}{% endif %} <strong>{{ o.then }}</strong></p>
         {% endif %}
       </li>
       {% endfor %}

@@ -354,6 +354,8 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .verdict-label { font: 0.8rem var(--sans); color: var(--muted); }
 .then { flex-basis: 100%; margin: 0.2rem 0 0; font: 0.88rem var(--sans); color: var(--accent); }
 .hstatus { font: 600 0.66rem var(--sans); letter-spacing: 0.08em; text-transform: uppercase; padding: 0.15rem 0.4rem; border-radius: 2px; border: 1px solid var(--rule-2); color: var(--ink-2); }
+.hstatus.h-watching { border-color: var(--orient); color: var(--orient); }
+.kind-label { font: 600 0.62rem var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-right: 0.3rem; }
 .hstatus.h-testing { border-color: var(--act); color: var(--act); }
 .hstatus.h-planned { border-color: var(--decide); color: var(--decide); }
 .items.hypotheses td { vertical-align: top; }

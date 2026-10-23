@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import notify
 from .document import (
-    GUIDES, assumptions_heading, blocks, felt_heading, inversion_heading, missing_voices_heading, experiment_labels, experiments, other_eyes_heading, plain_text,
+    GUIDES, assumptions_heading, blocks, risk_labels, risks, felt_heading, inversion_heading, missing_voices_heading, experiment_labels, experiments, other_eyes_heading, plain_text,
     results_heading, section, surprise_heading, tagged_blocks,
 )
 from .models import Comment, Document, Reply
@@ -49,7 +49,9 @@ CRITERIA = {
         "Decide designs a set of experiments that validate the assumptions from Orient (its hypotheses "
         "are the input). Each experiment tests one assumption and states what we do, how we measure, "
         "the result that would confirm it, the result that would refute it, what we will do if it fails "
-        "(decided now, as in the observational method), and its time and cost. "
+        "(decided now, as in the observational method), and its time and cost. Risks belong here too: "
+        "strategy and risk are the same uncertainty. A risk names what could go wrong, its early signal, "
+        "and what we will do when we see it. "
         "Point out assumptions from Orient that no experiment tests, experiments that test several "
         "things at once, outcomes that cannot be measured, thresholds that are not decided in advance, "
         "and experiments too big or slow to run soon."
@@ -255,6 +257,21 @@ def decide_rules(doc):
         line, value = fields.get(holds, ("", ""))
         if value and not re.search(r"\d", value):
             notes.append(Note("comment", line, "Can this threshold be a number, so nobody has to argue about it afterwards?"))
+    what, signal, if_seen = risk_labels()
+    risk_blocks = risks(doc.body)
+    named = {h: f for h, f in risk_blocks.items() if f.get(what, ("", ""))[1]}
+    if not named and risk_blocks:
+        notes.append(Note("comment", next(iter(risk_blocks)), (
+            "Is there a risk worth watching while we test? Strategy and risk are the same uncertainty: "
+            "name what could go wrong and its early signal.")))
+    for fields in named.values():
+        for label, question in (
+            (signal, "What would we see first if this starts to happen?"),
+            (if_seen, "What will we do the moment we see that signal? Decide it now."),
+        ):
+            line, value = fields.get(label, ("", ""))
+            if line and not value:
+                notes.append(Note("comment", line, question))
     return notes
 
 

@@ -178,6 +178,11 @@ def act_template(decide=None):
         if any(value for _line, value in fields.values()):
             label = f"{name} — {tested}" if tested else name
             lines.append(f"<li><strong>{escape(label)}:</strong> </li>")
+    what = risk_labels()[0]
+    for name, fields in risks(decide.body if decide else "").items():
+        danger = fields.get(what, ("", ""))[1].rstrip(" .")
+        if danger:
+            lines.append(f"<li><strong>{escape(f'{name} — {danger}')}:</strong> </li>")
     results = f"<ul>{''.join(lines)}</ul>" if lines else "<p><br></p>"
     return (
         f"<h3>{escape(_('Journal'))}</h3><p><br></p>"
@@ -197,6 +202,15 @@ def experiment_labels():
             _("If it fails, we will"), _("Time and cost")]
 
 
+def risk_labels():
+    return [_("What could go wrong"), _("Early signal"), _("If we see it, we will")]
+
+
+def risk(n):
+    items = "".join(f"<li><strong>{escape(label)}:</strong> </li>" for label in risk_labels())
+    return f"<h3>{escape(_('Risk %(n)s') % {'n': n})}</h3><ul>{items}</ul>"
+
+
 def experiment(n):
     items = "".join(f"<li><strong>{escape(label)}:</strong> </li>" for label in experiment_labels())
     return f"<h3>{escape(_('Experiment %(n)s') % {'n': n})}</h3><ul>{items}</ul>"
@@ -208,6 +222,7 @@ def decide_template(orient=None):
     return (
         f"<h3>{escape(_('Assumptions from Orient to validate'))}</h3>{assumptions or '<p><br></p>'}"
         + experiment(1) + experiment(2)
+        + risk(1)
         + f"<h3>{escape(_('Which first, and why?'))}</h3><p><br></p>"
     )
 
@@ -263,11 +278,19 @@ def section(html, starts):
 
 def experiments(html):
     """{heading: {label: (line, value)}} for each experiment block in a Decide document."""
+    return labelled_blocks(html, _("Experiment").lower(), experiment_labels())
+
+
+def risks(html):
+    """{heading: {label: (line, value)}} for each risk block in a Decide document."""
+    return labelled_blocks(html, _("Risk").lower(), risk_labels())
+
+
+def labelled_blocks(html, prefix, labels):
     found, current = {}, None
-    labels = experiment_labels()
     for tag, text in tagged_blocks(html):
         if tag in ("h2", "h3"):
-            current = text if text.lower().startswith("experiment") else None
+            current = text if text.lower().startswith(prefix) else None
             if current:
                 found[current] = {}
         elif current is not None and tag == "li":

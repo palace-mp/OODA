@@ -466,6 +466,8 @@ class Verdict(models.Model):
 
     HELD, FAILED, UNCLEAR = "held", "failed", "unclear"
     OUTCOMES = [(HELD, _("Held")), (FAILED, _("Failed")), (UNCLEAR, _("Unclear"))]
+    # For a risk, the same three answers read differently: it didn't happen, it did, or we can't tell.
+    RISK_OUTCOMES = [(HELD, _("Didn't happen")), (FAILED, _("Happened")), (UNCLEAR, _("Unclear"))]
 
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="verdicts")
     cycle = models.PositiveIntegerField()
