@@ -843,3 +843,58 @@ class PerspectiveTests(Base):
         bodies = list(Comment.objects.filter(document=doc).values_list("body", flat=True))
         self.assertTrue(any("Have they been asked?" in b for b in bodies))
         self.assertTrue(all(c.kind == "comment" for c in Comment.objects.filter(document=doc)))
+
+
+class NestedLoopTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.parent = self.item("Move hosting")
+        self.parent.assignees.add(self.bo)
+        self.child = self.item("Nightly backups", parent=self.parent)
+
+    def child_to_act(self):
+        c = self.child
+        c.advance(self.anna)
+        c.advance(self.anna)
+        d = c.document
+        d.body = d.body.replace("<li><strong>Hypothesis:</strong> </li>",
+                                "<li><strong>Hypothesis:</strong> Restores take under an hour.</li>", 1)
+        d.save()
+        c.advance(self.anna)
+        act = c.document
+        act.body = act.body.replace(":</strong> </li>", ":</strong> A full restore took 41 minutes.</li>")
+        act.save()
+        Verdict.objects.create(item=c, cycle=1, experiment="Experiment 1", outcome="held")
+        return c
+
+    def test_finished_loop_reports_up_as_an_observation(self):
+        c = self.child_to_act()
+        c.advance(self.anna)
+        obs = self.parent.pending_observations().get()
+        self.assertTrue(obs.body.startswith("From #2 Nightly backups, loop 1:"))
+        self.assertIn("A full restore took 41 minutes.", obs.body)
+        self.assertIn("Experiment 1: held", obs.body)
+        self.assertEqual(obs.signal, "measured")
+        self.assertEqual([m.to for m in mail.outbox], [["bo@example.com"]])
+
+    def test_marking_done_in_act_also_reports_up(self):
+        c = self.child_to_act()
+        c.set_done(True, self.anna)
+        self.assertEqual(self.parent.pending_observations().count(), 1)
+
+    def test_child_shows_the_intent_from_above(self):
+        self.parent.advance(self.anna)
+        self.parent.advance(self.anna)
+        d = self.parent.document
+        d.body = d.body.replace("<li><strong>Hypothesis:</strong> </li>",
+                                "<li><strong>Hypothesis:</strong> An EU host halves latency.</li>", 1)
+        d.save()
+        r = self.client.get(self.child.get_absolute_url())
+        self.assertContains(r, "Intent from the loop above: #1 Move hosting")
+        self.assertContains(r, "An EU host halves latency.")
+
+    def test_board_filters_by_level(self):
+        r = self.client.get(reverse("board:index"), {"level": "sub"})
+        self.assertEqual([i.pk for i in r.context["items"]], [self.child.pk])
+        r = self.client.get(reverse("board:index"), {"level": "top"})
+        self.assertEqual([i.pk for i in r.context["items"]], [self.parent.pk])

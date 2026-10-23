@@ -47,6 +47,7 @@ def filter_items(request, workspace):
         "due": g.get("due", ""),
         "state": g.get("state", "open"),
         "opt": [int(o) for o in g.getlist("opt") if o.isdigit()],
+        "level": g.get("level", ""),
     }
     items = item_queryset(workspace)
     if f["q"]:
@@ -72,6 +73,10 @@ def filter_items(request, workspace):
         items = items.filter(deadline__lte=today + timedelta(days=7))
     elif f["due"] == "none":
         items = items.filter(deadline=None)
+    if f["level"] == "top":
+        items = items.filter(parent__isnull=True)
+    elif f["level"] == "sub":
+        items = items.filter(parent__isnull=False)
     if f["state"] == "open":
         items = items.filter(is_done=False)
     elif f["state"] == "done":
@@ -83,7 +88,7 @@ def filter_items(request, workspace):
             by_field.setdefault(opt.field_id, []).append(opt.pk)
         for pks in by_field.values():
             items = items.filter(options__pk__in=pks)
-    f["active"] = any([f["q"], f["phase"], f["who"], f["prio"], f["due"], f["opt"], f["state"] != "open"])
+    f["active"] = any([f["q"], f["phase"], f["who"], f["prio"], f["due"], f["opt"], f["level"], f["state"] != "open"])
     return items.distinct(), f
 
 
@@ -226,6 +231,7 @@ def item_page_context(item, doc=None, public=False):
         "thread_total": len(threads),
         "outcomes": outcomes_for(doc),
         "kept_readings": readings_before(doc),
+        "intent": intent_from(item.parent),
         "verdict_choices": Verdict.OUTCOMES,
         "pending": list(item.pending_observations().select_related("author")),
         "reoriented": next((s for s in reversed(spans) if s.reason and s.phase == doc.phase
@@ -240,6 +246,20 @@ def item_page_context(item, doc=None, public=False):
         "avg_loop": sum(loop_times, timedelta()) / len(loop_times) if loop_times else None,
         "public": public,
     }
+
+
+def intent_from(parent):
+    """What the loop above is set on: its latest experiments, or else its hypotheses."""
+    if parent is None:
+        return None
+    for d in parent.documents.filter(phase=DECIDE).order_by("-cycle"):
+        if document.has_content(d.body):
+            return {"item": parent, "doc": d}
+    for d in parent.documents.filter(phase=ORIENT).order_by("-cycle"):
+        found = document.hypotheses(d.body)
+        if found:
+            return {"item": parent, "doc": d, "html": found}
+    return {"item": parent, "doc": None}
 
 
 def readings_before(doc):
@@ -797,6 +817,13 @@ def tempo(request):
         end = starts.get((item_id, cycle + 1))
         if end:
             loops_by_end.append((end, end - start))
+    depth = {i.pk: i.depth() for i in Item.objects.filter(workspace=workspace).select_related("parent__parent__parent")}
+    levels = {}
+    for (item_id, cycle), start in starts.items():
+        end = starts.get((item_id, cycle + 1))
+        if end and end >= since:
+            levels.setdefault(min(depth.get(item_id, 1), 3), []).append(end - start)
+    level_rows = [{"level": lvl, "loops": len(ds), "median": median(ds)} for lvl, ds in sorted(levels.items())]
     loops_now = [d for end, d in loops_by_end if end >= since]
     loops_prev = [d for end, d in loops_by_end if since - timedelta(days=days) <= end < since]
 
@@ -871,6 +898,7 @@ def tempo(request):
         "tested_total": sum(tested.values()),
         "tested_previous": tested_prev,
         "stale": stale,
+        "level_rows": level_rows,
     })
 
 

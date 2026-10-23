@@ -7,7 +7,10 @@ from django.utils.translation import gettext_lazy as _
 
 from accounts.models import Workspace
 
-from .document import add_to_first_section, has_content, heading, observations_list, plain_text, template as document_template
+from .document import (
+    add_to_first_section, has_content, heading, observations_list, plain_text, results_heading, section_html,
+    template as document_template,
+)
 
 User = settings.AUTH_USER_MODEL
 
@@ -144,6 +147,8 @@ class Item(models.Model):
         """Move to a phase. Going from Act back to Observe starts a new loop."""
         if phase == self.phase:
             return
+        if self.phase == ACT and phase == OBSERVE:
+            self.report_to_parent(by)
         now = timezone.now()
         if self.phase == ACT and phase == OBSERVE:
             self.cycle += 1
@@ -160,8 +165,46 @@ class Item(models.Model):
     def advance(self, by=None):
         self.set_phase(next_phase(self.phase), by)
 
+    def report_to_parent(self, by=None):
+        """A finished loop's results become an observation on the item above.
+
+        Loops nest: a slower loop above, faster ones below. What the faster loop
+        learned is how the slower one keeps its picture up to date.
+        """
+        if self.parent_id is None:
+            return None
+        act = Document.objects.filter(item=self, phase=ACT, cycle=self.cycle).first()
+        lines = []
+        if act:
+            found = section_html(act.body, results_heading())
+            lines += [line for line in plain_text(found).splitlines() if line.strip()]
+        for v in self.verdicts.filter(cycle=self.cycle).order_by("experiment"):
+            lines.append(f"{v.experiment}: {v.get_outcome_display().lower()}")
+        if not lines:
+            return None
+        intro = _("From #%(n)s %(t)s, loop %(c)s:") % {"n": self.number, "t": self.title, "c": self.cycle}
+        entry = Entry.objects.create(
+            workspace=self.workspace, item=self.parent, kind=Entry.OBSERVATION, author=by,
+            body=intro + "\n" + "\n".join(lines), cycle=self.parent.cycle, signal=Entry.MEASURED,
+        )
+        from . import notify
+
+        editors = list(self.parent.assignees.all()) or ([self.parent.created_by] if self.parent.created_by else [])
+        notify.observed(self.parent, editors, by, entry.body)
+        return entry
+
+    def depth(self):
+        level, node, seen = 1, self.parent, set()
+        while node is not None and node.pk not in seen:
+            seen.add(node.pk)
+            level += 1
+            node = node.parent
+        return level
+
     @transaction.atomic
     def set_done(self, done, by=None):
+        if done and not self.is_done and self.phase == ACT:
+            self.report_to_parent(by)
         now = timezone.now()
         self.is_done = done
         self.done_at = now if done else None

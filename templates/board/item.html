@@ -185,6 +185,17 @@
   </section>
   {% endif %}
 
+  {% if intent %}
+  <details class="intent">
+    <summary>{% blocktranslate with n=intent.item.number t=intent.item.title %}Intent from the loop above: #{{ n }} {{ t }}{% endblocktranslate %}</summary>
+    {% if intent.html %}<div class="doc input-body">{{ intent.html|safe }}</div>
+    {% elif intent.doc %}<div class="doc input-body">{{ intent.doc.body|tidy }}</div>
+    {% else %}<p class="meta">{% translate "It hasn't set out what it is testing yet." %}</p>{% endif %}
+    <p class="meta">{% translate "This item runs a faster loop inside it. Its results are reported up as observations when a loop is finished." %}
+      <a href="{% item_url intent.item %}">{% translate "Open it" %}</a></p>
+  </details>
+  {% endif %}
+
   {% if kept_readings %}
   <section class="kept-readings">
     <h2>{% blocktranslate with phase=input_doc.get_phase_display %}Other readings kept from {{ phase }}{% endblocktranslate %}</h2>

@@ -39,6 +39,12 @@
   </select>
   {% endfor %}
 
+  <select name="level" aria-label="{% translate 'Level' %}">
+    <option value="">{% translate "Any level" %}</option>
+    <option value="top" {% if filters.level == "top" %}selected{% endif %}>{% translate "Top level" %}</option>
+    <option value="sub" {% if filters.level == "sub" %}selected{% endif %}>{% translate "Sub-items" %}</option>
+  </select>
+
   <select name="state" aria-label="{% translate 'State' %}">
     <option value="open" {% if filters.state == "open" %}selected{% endif %}>{% translate "Open" %}</option>
     <option value="done" {% if filters.state == "done" %}selected{% endif %}>{% translate "Done" %}</option>

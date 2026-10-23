@@ -417,6 +417,8 @@ ins.off { display: none; }
 .thread.reading { border-left: 3px solid var(--orient); }
 .reading-label { margin: 0 0 0.3rem; font: 600 0.62rem var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--orient); }
 mark.c.r { background: color-mix(in srgb, var(--orient) 18%, transparent); }
+.intent { margin: 1rem 0 0; max-width: 760px; border-left: 2px solid var(--ink-2); padding: 0.1rem 0 0.1rem 1rem; }
+.intent summary { cursor: pointer; font: 0.85rem var(--sans); color: var(--ink-2); }
 .kept-readings { margin: 1.1rem 0 0; max-width: 760px; border-left: 3px solid var(--orient); padding: 0.2rem 0 0.2rem 1rem; }
 .kept-readings h2 { margin: 0 0 0.5rem; color: var(--orient); }
 .kept-readings li { padding: 0.35rem 0; }

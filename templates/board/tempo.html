@@ -80,6 +80,20 @@
     </div>
   </div>
 
+  {% if level_rows %}
+  <h2>{% translate "Loops per level — as fast as allowed" %}</h2>
+  <p class="meta">{% translate "Loops nest: the closer to reality, the faster a loop can turn. Compare each level with itself over time, not with the others." %}</p>
+  <table class="phases">
+    {% for r in level_rows %}
+    <tr>
+      <th>{% if r.level == 1 %}{% translate "Top level" %}{% elif r.level == 2 %}{% translate "Sub-items" %}{% else %}{% translate "Deeper" %}{% endif %}</th>
+      <td class="meta">{% blocktranslate count n=r.loops %}{{ n }} loop{% plural %}{{ n }} loops{% endblocktranslate %}</td>
+      <td class="nowrap">{{ r.median|span }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
   <h2>{% translate "Time in each phase" %}</h2>
   <p class="meta">{% translate "Median time an item stays in a phase before it moves on." %}</p>
   <table class="phases">
