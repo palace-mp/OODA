@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from accounts.models import Invite, Membership, User, Workspace
 
-from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Document, Entry, Field, FieldOption, Item, PhaseSpan, Reply, Verdict
+from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Document, Entry, Field, FieldOption, Item, Lens, PhaseSpan, Reply, Verdict
 
 
 class Base(TestCase):
@@ -943,3 +943,26 @@ class RiskTests(Base):
             d.body = d.body.replace(f"<li><strong>{label}:</strong> </li>", f"<li><strong>{label}:</strong> {value}</li>", 1)
         notes = {n.quote: n.comment for n in rule_review(d, None)}
         self.assertIn("What would we see first", notes["Early signal:"])
+
+
+class LibraryTests(Base):
+    def test_library_starts_with_lenses_and_takes_new_ones(self):
+        r = self.client.get(reverse("board:library"))
+        self.assertContains(r, "The snowmobile")
+        self.client.force_login(self.bo)
+        self.client.post(reverse("board:library"), {"name": "Pre-mortem", "question": "It failed. Why?"})
+        lens = Lens.objects.get(name="Pre-mortem")
+        self.assertEqual(lens.added_by, self.bo)
+        other = Lens.objects.get(name="Inversion")
+        self.assertEqual(self.client.post(reverse("board:delete_lens", args=[other.pk])).status_code, 403)
+        self.client.post(reverse("board:delete_lens", args=[lens.pk]))
+        self.assertFalse(Lens.objects.filter(name="Pre-mortem").exists())
+
+    def test_orient_suggests_lenses_and_adds_the_question(self):
+        it = self.item("Churn")
+        it.advance(self.anna)
+        r = self.client.get(it.get_absolute_url())
+        self.assertEqual(len(r.context["lenses"]), 3)
+        lens = r.context["lenses"][0]
+        self.client.post(reverse("board:use_lens", args=[it.number, lens.pk]))
+        self.assertIn(f"<h3>{lens.question} ({lens.name})</h3>", it.document.body)

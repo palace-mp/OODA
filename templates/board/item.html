@@ -197,6 +197,20 @@
   </details>
   {% endif %}
 
+  {% if lenses and is_current %}
+  <aside class="lenses" aria-label="{% translate 'Lenses to try' %}">
+    <h2>{% translate "Try another lens" %} <a class="meta" href="{% url 'board:library' %}">{% translate "the library" %} →</a></h2>
+    <ul class="plain">
+      {% for lens in lenses %}
+      <li><strong>{{ lens.name }}</strong>{% if lens.source %} <span class="meta">{{ lens.source }}</span>{% endif %}
+        <div>{{ lens.question }}</div>
+        {% if can_edit %}<form method="post" action="{% url 'board:use_lens' item.number lens.pk %}" class="inline">{% csrf_token %}<button class="link">{% translate "add the question to the document" %}</button></form>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+
   {% if kept_readings %}
   <section class="kept-readings">
     <h2>{% blocktranslate with phase=input_doc.get_phase_display %}Other readings kept from {{ phase }}{% endblocktranslate %}</h2>

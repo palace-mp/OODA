@@ -154,6 +154,11 @@ def claude_review(doc, input_doc, lens="data"):
         "document is written in. Leave the template's question headings alone."
     )
     parts = [f"Title: {doc.item.title}"]
+    if doc.phase == "orient":
+        from .library import ensure
+
+        kept = "\n".join(f"- {lens.name}: {lens.question}" for lens in ensure(doc.item.workspace))
+        parts.append("Lenses the team keeps in its library; suggest one where it would help:\n" + kept)
     if input_doc:
         parts.append(f"Input, the {input_doc.get_phase_display()} document before this one:\n{plain_text(input_doc.body)}")
     parts.append("The document to review, one paragraph per line:\n" + "\n".join(blocks(doc.body)))
@@ -372,7 +377,7 @@ def claims(doc):
                 inside = text == heading
             elif inside and text.strip():
                 lines.append(text.strip())
-    if doc.phase in ("observe", "act") and not lines:
+    if not lines:  # no hypotheses written out: read the main claims instead
         lines = [t.strip() for t in blocks(doc.body, headings=False) if len(t.strip()) > 30][:2]
     return lines
 

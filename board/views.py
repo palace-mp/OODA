@@ -13,10 +13,13 @@ from django.views.decorators.http import require_POST
 from accounts.decorators import member_required
 from accounts.models import Workspace
 
-from . import document, notify
+from . import document, library, notify
 from .document import experiment_labels, experiments
 from .forms import EntryForm, ItemForm, LinkForm, workspace_users
-from .models import ACT, DECIDE, ORIENT, OBSERVE, PHASE_ORDER, PHASES, Comment, Document, Entry, Field, FieldOption, Item, Link, PhaseSpan, Reply, Verdict
+from .models import (
+    ACT, DECIDE, OBSERVE, ORIENT, PHASE_ORDER, PHASES, Comment, Document, Entry, Field, FieldOption, Item, Lens,
+    Link, PhaseSpan, Reply, Verdict,
+)
 
 # --- Board -----------------------------------------------------------------
 
@@ -232,6 +235,7 @@ def item_page_context(item, doc=None, public=False):
         "outcomes": outcomes_for(doc),
         "kept_readings": readings_before(doc),
         "intent": intent_from(item.parent),
+        "lenses": library.suggestions(doc) if doc.phase == ORIENT else [],
         "verdict_choices": Verdict.OUTCOMES,
         "pending": list(item.pending_observations().select_related("author")),
         "reoriented": next((s for s in reversed(spans) if s.reason and s.phase == doc.phase
@@ -376,6 +380,43 @@ def observation_noted(request, pk):
     entry.handled_how = how
     entry.save(update_fields=["handled_at", "handled_by", "handled_how"])
     return redirect(item.get_absolute_url() + "#observations")
+
+
+@member_required
+def library_page(request):
+    lenses = library.ensure(request.workspace)
+    if request.method == "POST":
+        name = request.POST.get("name", "").strip()[:120]
+        question = request.POST.get("question", "").strip()[:300]
+        if name and question:
+            Lens.objects.create(workspace=request.workspace, name=name, question=question,
+                                source=request.POST.get("source", "").strip()[:160],
+                                note=request.POST.get("note", "").strip(), added_by=request.user)
+        return redirect("board:library")
+    return render(request, "board/library.html", {"lenses": lenses})
+
+
+@member_required
+@require_POST
+def delete_lens(request, pk):
+    lens = get_object_or_404(Lens, workspace=request.workspace, pk=pk)
+    if not (request.membership.is_owner or lens.added_by_id == request.user.pk):
+        raise PermissionDenied
+    lens.delete()
+    return redirect("board:library")
+
+
+@member_required
+@require_POST
+def use_lens(request, number, pk):
+    """Add a lens's question to the Orient document, to answer there."""
+    item, redirect_to = get_item(request, number, edit=True)
+    if redirect_to:
+        return redirect_to
+    lens = get_object_or_404(Lens, workspace=request.workspace, pk=pk)
+    if item.phase == ORIENT:
+        item.document.append(document.heading(f"{lens.question} ({lens.name})") + "<p><br></p>")
+    return redirect(item)
 
 
 @member_required

@@ -40,7 +40,14 @@ export DEBUG=1
 .venv/bin/python manage.py agent            # kör tills du trycker Ctrl+C, tittar efter arbete var 15:e sekund
 .venv/bin/python manage.py agent --once     # en runda och sedan klart
 .venv/bin/python manage.py agent --name Bert   # en till agent, med eget namn och @bert
+.venv/bin/python manage.py agent --name Vera --lens inversion   # läser det motsatta, lämnar avvikande tolkningar
+.venv/bin/python manage.py agent --name Hugo --lens human       # frågar människorna om upplevelse och saknade röster
 ```
+
+Agenter granskar ur olika perspektiv, `--lens`:
+- `data` (standard) letar efter belägg, jämförelser och mätbarhet.
+- `inversion` frågar "tänk om det är tvärtom?" och lämnar avvikande tolkningar.
+- `human` frågar efter upplevelse, relationer och vem som inte hörs, men påstår aldrig vad någon känner.
 
 Agenten tänker med **Claude** (`claude-opus-5-5`) om det finns Anthropic-uppgifter, till exempel `export ANTHROPIC_API_KEY=...`. Annars använder den några enkla inbyggda regler (vaga ord som "ofta", slutsatser i en observation, saknade källor), så att flödet går att prova utan nyckel. `--rules` tvingar fram reglerna.
 
