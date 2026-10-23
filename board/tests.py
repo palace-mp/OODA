@@ -551,3 +551,47 @@ class OrientReviewTests(Base):
         ).replace("<p><br></p>", "<p>Churn is 7%, compared to 4% last year, according to the billing report.</p>", 1)
         doc.save()
         self.assertEqual(self.quotes(doc), {})
+
+
+class DecideTests(Base):
+    def decide_doc(self, orient_body):
+        item = self.item("Churn")
+        item.advance(self.anna)
+        Document.objects.filter(pk=item.document.pk).update(body=orient_body)
+        item.advance(self.anna)
+        return item.document
+
+    def test_decide_starts_from_orients_hypotheses(self):
+        doc = self.decide_doc(
+            "<h3>Hypotheses: what could explain it, and how could we test it?</h3>"
+            "<ul><li>Solo users see no reason to invite.</li></ul><h3>What don't we know yet?</h3><p><br></p>")
+        self.assertEqual(doc.phase, "decide")
+        self.assertIn("<h3>Assumptions from Orient to validate</h3><ul><li>Solo users see no reason to invite.</li></ul>",
+                      doc.body)
+        self.assertIn("<h3>Experiment 1</h3>", doc.body)
+        self.assertIn("<li><strong>How we measure:</strong> </li>", doc.body)
+
+    def test_empty_experiments_are_hidden_and_not_content(self):
+        from .document import decide_template, has_content, tidy
+
+        self.assertEqual(tidy(decide_template()), "")
+        self.assertFalse(has_content(decide_template()))
+
+    def test_agent_asks_for_measure_and_thresholds(self):
+        from .agent import rule_review
+
+        doc = self.decide_doc("")
+        doc.body = doc.body.replace(
+            "<li><strong>Hypothesis:</strong> </li>", "<li><strong>Hypothesis:</strong> Solo users skip invites.</li>"
+        ).replace("<li><strong>It holds if:</strong> </li>", "<li><strong>It holds if:</strong> more people finish</li>", 1)
+        doc.save()
+        notes = {n.quote: n.comment for n in rule_review(doc, None)}
+        self.assertIn("How will we know?", notes["How we measure:"])
+        self.assertIn("be a number", notes["It holds if: more people finish"])
+        self.assertIn("wrong", notes["It fails if:"])
+
+    def test_agent_nudges_an_untouched_decide_document(self):
+        from .agent import rule_review
+
+        notes = rule_review(self.decide_doc(""), None)
+        self.assertEqual([n.quote for n in notes], ["Experiment 1"])

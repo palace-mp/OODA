@@ -14,7 +14,7 @@ from html import unescape
 from pathlib import Path
 
 from . import notify
-from .document import GUIDES, plain_text
+from .document import GUIDES, experiment_labels, plain_text
 from .models import Comment, Document, Reply
 
 MODEL = "claude-opus-5-5"
@@ -36,8 +36,12 @@ CRITERIA = {
         "that is missing, and for hypotheses concrete enough to test."
     ),
     "decide": (
-        "A decision names the options considered, the one chosen, why, and what would make us change "
-        "our minds. Point out a missing reason, options not weighed, and decisions too vague to act on."
+        "Decide designs a set of experiments that validate the assumptions from Orient (its hypotheses "
+        "are the input). Each experiment tests one assumption and states what we do, how we measure, "
+        "the result that would confirm it and the result that would refute it, and its time and cost. "
+        "Point out assumptions from Orient that no experiment tests, experiments that test several "
+        "things at once, outcomes that cannot be measured, thresholds that are not decided in advance, "
+        "and experiments too big or slow to run soon."
     ),
     "act": (
         "An action report says what was done and what came of it, concretely enough that the next "
@@ -194,10 +198,53 @@ def rule_review(doc, input_doc):
         notes.append(Note("comment", first, "Is there a number, a date or a source to go with this? How do we know?"))
     if doc.phase == "orient" and first:
         notes += orient_rules(doc, texts, first, numbers)
+    if doc.phase == "decide":
+        notes += decide_rules(doc)
     unique = {}
     for note in notes:
         unique.setdefault(note.quote, note)
     return list(unique.values())[:4]
+
+
+def experiments(html):
+    """{heading: {label: (line, value)}} for each experiment block in a Decide document."""
+    found, current = {}, None
+    labels = experiment_labels()
+    for tag, text in tagged_blocks(html):
+        if tag in ("h2", "h3"):
+            current = text if text.lower().startswith("experiment") else None
+            if current:
+                found[current] = {}
+        elif current is not None and tag == "li":
+            for label in labels:
+                if text.startswith(label + ":"):
+                    found[current][label] = (text.strip(), text[len(label) + 1:].strip())
+    return found
+
+
+def decide_rules(doc):
+    hypothesis, what, measure, holds, fails, _cost = experiment_labels()
+    blocks_ = experiments(doc.body)
+    started = {h: fields for h, fields in blocks_.items() if any(v for _l, v in fields.values())}
+    if not started:
+        heading = next(iter(blocks_), None)
+        return [Note("comment", heading, (
+            "Which assumption from Orient do we test first? One small experiment is enough to start."))] if heading else []
+    notes = []
+    for fields in started.values():
+        for label, question in (
+            (hypothesis, "Which assumption from Orient does this experiment test? One per experiment keeps the answer clear."),
+            (measure, "How will we know? Name the number or signal we'll read off, and where it comes from."),
+            (holds, "What result confirms the assumption? Decide it before the experiment starts."),
+            (fails, "What result would show the assumption is wrong, so we stop or change course?"),
+        ):
+            line, value = fields.get(label, ("", ""))
+            if line and not value:
+                notes.append(Note("comment", line, question))
+        line, value = fields.get(holds, ("", ""))
+        if value and not re.search(r"\d", value):
+            notes.append(Note("comment", line, "Can this threshold be a number, so nobody has to argue about it afterwards?"))
+    return notes
 
 
 def orient_rules(doc, texts, first, numbers):

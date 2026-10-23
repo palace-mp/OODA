@@ -39,7 +39,7 @@ def heading(text):
 
 def has_content(html):
     """Is anything written apart from the template's questions?"""
-    return bool(plain_text(re.sub(r"<h[23]>.*?</h[23]>", "", html or "")).strip())
+    return bool(plain_text(re.sub(r"<h[23]>.*?</h[23]>", "", tidy(html))).strip())
 
 
 def plain_text(html):
@@ -62,13 +62,16 @@ GUIDES = {
         "signals, history and projections. Make it comparable, and end with hypotheses Decide can "
         "design experiments around."
     ),
-    "decide": gettext_lazy("What do we do, and why? Options, the choice, and what would change our minds."),
+    "decide": gettext_lazy(
+        "Design experiments that validate the assumptions from Orient. Each one tests one assumption, "
+        "with a result we can measure and decide on. The output is a set of experiments."
+    ),
     "act": gettext_lazy("What was done, and what came of it? This is what the next observation starts from."),
 }
 
 
-def template(phase):
-    """A new document starts with the questions its phase asks."""
+def template(phase, previous=None):
+    """A new document starts with the questions its phase asks. `previous` is the document before it."""
     questions = {
         "observe": [_("What happened?"), _("Where and when?"), _("How often, how many?"), _("How do we know?")],
         "orient": [
@@ -80,15 +83,44 @@ def template(phase):
             _("Hypotheses: what could explain it, and how could we test it?"),
             _("What don't we know yet?"),
         ],
-        "decide": [_("Options"), _("Decision"), _("Why"), _("What would make us change our minds?")],
         "act": [_("What we did"), _("What happened"), _("What to observe next")],
     }.get(phase, [])
+    if phase == "decide":
+        return decide_template(previous)
     return "".join(f"<h3>{escape(q)}</h3><p><br></p>" for q in questions)
+
+
+def experiment_labels():
+    return [_("Hypothesis"), _("What we do"), _("How we measure"), _("It holds if"), _("It fails if"),
+            _("Time and cost")]
+
+
+def experiment(n):
+    items = "".join(f"<li><strong>{escape(label)}:</strong> </li>" for label in experiment_labels())
+    return f"<h3>{escape(_('Experiment %(n)s') % {'n': n})}</h3><ul>{items}</ul>"
+
+
+def decide_template(orient=None):
+    """Decide starts from the hypotheses Orient ended with, and room for experiments to test them."""
+    assumptions = hypotheses(orient.body) if orient else ""
+    return (
+        f"<h3>{escape(_('Assumptions from Orient to validate'))}</h3>{assumptions or '<p><br></p>'}"
+        + experiment(1) + experiment(2)
+        + f"<h3>{escape(_('Which first, and why?'))}</h3><p><br></p>"
+    )
+
+
+def hypotheses(html):
+    """What was written under Orient's hypotheses heading, as HTML."""
+    match = re.search(r"<h[23]>\s*(Hypothes|Hypotes)[^<]*</h[23]>(.*?)(?=<h[23]>|$)", html or "", re.S | re.I)
+    return tidy(match.group(2)) if match else ""
 
 
 def tidy(html):
     """For reading afterwards: drop empty paragraphs and questions nobody answered."""
     html = re.sub(r"<p>(\s|<br>)*</p>", "", html or "")
+    html = re.sub(r"<li>\s*(<strong>[^<]*</strong>)?\s*(<br>)?\s*</li>", "", html)  # labels left blank
+    html = re.sub(r"<(ul|ol)>\s*</\1>", "", html)
     previous = None
     while previous != html:
         previous = html

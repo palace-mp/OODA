@@ -82,10 +82,11 @@ class Item(models.Model):
         return self.open_document()
 
     def open_document(self):
-        doc, _created = Document.objects.get_or_create(
-            item=self, phase=self.phase, cycle=self.cycle,
-            defaults={"body": document_template(self.phase)},
-        )
+        doc = Document.objects.filter(item=self, phase=self.phase, cycle=self.cycle).first()
+        if doc is None:
+            before = Document.objects.filter(item=self, phase=ORIENT, cycle=self.cycle).first()
+            doc = Document.objects.create(item=self, phase=self.phase, cycle=self.cycle,
+                                          body=document_template(self.phase, before))
         return doc
 
     def documents_in_order(self):
