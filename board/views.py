@@ -14,8 +14,9 @@ from accounts.decorators import member_required
 from accounts.models import Workspace
 
 from . import document, notify
+from .document import experiment_labels, experiments
 from .forms import EntryForm, ItemForm, LinkForm, workspace_users
-from .models import OBSERVE, PHASE_ORDER, PHASES, Comment, Document, Entry, Field, FieldOption, Item, Link, PhaseSpan, Reply
+from .models import ACT, DECIDE, ORIENT, OBSERVE, PHASE_ORDER, PHASES, Comment, Document, Entry, Field, FieldOption, Item, Link, PhaseSpan, Reply, Verdict
 
 # --- Board -----------------------------------------------------------------
 
@@ -223,6 +224,11 @@ def item_page_context(item, doc=None, public=False):
         "threads": [c for c in threads if c.is_open],
         "closed_threads": [c for c in threads if not c.is_open],
         "thread_total": len(threads),
+        "outcomes": outcomes_for(doc),
+        "verdict_choices": Verdict.OUTCOMES,
+        "pending": list(item.pending_observations().select_related("author")),
+        "reoriented": next((s for s in reversed(spans) if s.reason and s.phase == doc.phase
+                            and s.cycle == doc.cycle), None),
         "next_warning": warning,
         "children": item.children.filter(merged_into=None).order_by("is_done", "number"),
         "merged": item.merged.all(),
@@ -233,6 +239,117 @@ def item_page_context(item, doc=None, public=False):
         "avg_loop": sum(loop_times, timedelta()) / len(loop_times) if loop_times else None,
         "public": public,
     }
+
+
+def outcomes_for(doc):
+    """For an Act document: each experiment from the same loop's Decide, and its verdict."""
+    if doc.phase != ACT:
+        return []
+    decide = Document.objects.filter(item=doc.item, phase=DECIDE, cycle=doc.cycle).first()
+    if decide is None:
+        return []
+    verdicts = {v.experiment: v for v in Verdict.objects.filter(item=doc.item, cycle=doc.cycle)}
+    labels = experiment_labels()
+    rows = []
+    for name, fields in experiments(decide.body).items():
+        if any(value for _line, value in fields.values()):
+            rows.append({
+                "name": name,
+                "hypothesis": fields.get(labels[0], ("", ""))[1],
+                "fails": fields.get(labels[4], ("", ""))[1],
+                "then": fields.get(labels[5], ("", ""))[1],
+                "verdict": verdicts.get(name),
+            })
+    return rows
+
+
+@member_required
+@require_POST
+def verdict(request, number):
+    item, redirect_to = get_item(request, number, edit=True)
+    if redirect_to:
+        return redirect_to
+    outcome = request.POST.get("outcome")
+    name = request.POST.get("experiment", "")[:200]
+    known = [row["name"] for row in outcomes_for(item.document)]
+    if name in known and outcome in dict(Verdict.OUTCOMES):
+        Verdict.objects.update_or_create(item=item, cycle=item.cycle, experiment=name,
+                                         defaults={"outcome": outcome, "decided_by": request.user})
+    elif name in known and outcome == "":
+        Verdict.objects.filter(item=item, cycle=item.cycle, experiment=name).delete()
+    return redirect(item.get_absolute_url() + "#outcomes")
+
+
+@member_required
+@require_POST
+def observe_now(request, number):
+    """Anyone can note an observation on an item, whatever phase it is in."""
+    item, redirect_to = get_item(request, number)
+    if redirect_to:
+        return redirect_to
+    body = request.POST.get("body", "").strip()
+    if body:
+        Entry.objects.create(workspace=request.workspace, item=item, kind=Entry.OBSERVATION, body=body,
+                             author=request.user, cycle=item.cycle)
+        editors = list(item.assignees.all()) or ([item.created_by] if item.created_by else [])
+        notify.observed(item, editors, request.user, body)
+    return redirect(item.get_absolute_url() + "#observations")
+
+
+@member_required
+@require_POST
+def reorient(request, number):
+    """Back to Orient on purpose: the picture no longer fits what we see."""
+    item, redirect_to = get_item(request, number, edit=True)
+    if redirect_to:
+        return redirect_to
+    entry = item.pending_observations().filter(pk=request.POST.get("observation") or 0).first()
+    reason = request.POST.get("reason", "").strip() or (entry.body if entry else "")
+    if item.phase not in (DECIDE, ACT) or item.is_done or not reason:
+        return redirect(item)
+    item.reorient(request.user, reason)
+    doc = item.document
+    doc.append(document.heading(_("Re-oriented: what no longer fits")) + document.from_text(reason))
+    handled = [entry] if entry else []
+    Entry.objects.filter(pk__in=[e.pk for e in handled]).update(
+        handled_at=timezone.now(), handled_by=request.user, handled_how="reoriented")
+    messages.success(request, _("Back in Orient. The reason is at the end of the document."))
+    return redirect(item)
+
+
+@member_required
+@require_POST
+def observation_noted(request, pk):
+    """Take an observation in without going back: note it, or add it to the document."""
+    entry = get_object_or_404(Entry, workspace=request.workspace, pk=pk, item__isnull=False, handled_at=None)
+    item = entry.item
+    if not item.can_edit(request.user, request.membership):
+        raise PermissionDenied
+    how = "added" if request.POST.get("action") == "add" else "noted"
+    if how == "added":
+        item.document.append(document.from_entry(entry))
+    entry.handled_at = timezone.now()
+    entry.handled_by = request.user
+    entry.handled_how = how
+    entry.save(update_fields=["handled_at", "handled_by", "handled_how"])
+    return redirect(item.get_absolute_url() + "#observations")
+
+
+@member_required
+def hypotheses_page(request):
+    from . import hypotheses
+
+    items = Item.objects.filter(workspace=request.workspace, merged_into=None)
+    found = hypotheses.for_items(items)
+    status = request.GET.get("status", "")
+    counts = {key: sum(1 for h in found if h.status == key) for key, _label in hypotheses.STATUSES}
+    shown = [h for h in found if not status or h.status == status]
+    order = [key for key, _label in hypotheses.STATUSES]
+    shown.sort(key=lambda h: (order.index(h.status), -h.item.number))
+    return render(request, "board/hypotheses.html", {
+        "hypotheses": shown, "statuses": hypotheses.STATUSES, "counts": counts, "status": status,
+        "total": len(found),
+    })
 
 
 @member_required
@@ -602,11 +719,11 @@ def file_entry(request, pk):
         if target is None:
             messages.error(request, _("No such item."))
             return redirect("board:inbox")
-        if target.can_edit(request.user, request.membership):
-            target.document.append(document.from_entry(entry))
-        else:
-            Comment.objects.create(item=target, document=target.document, author=entry.author or request.user,
-                                   body=f"{entry.get_kind_display()}: {entry.body}")
+        entry.item = target
+        entry.cycle = target.cycle
+        entry.save(update_fields=["item", "cycle"])
+        messages.success(request, _("Filed under #%(n)s.") % {"n": target.number})
+        return redirect("board:inbox")
     entry.delete()
     messages.success(request, _("Filed under #%(n)s.") % {"n": target.number})
     return redirect("board:inbox")
@@ -685,6 +802,44 @@ def tempo(request):
         key=lambda s: s.started_at,
     )[:8]
 
+    # From noticing something to doing something about it.
+    first_act = {}
+    for span in all_spans:
+        if span.phase == ACT:
+            first_act.setdefault(span.item_id, []).append(span.started_at)
+    observations = list(Entry.objects.filter(workspace=workspace, item__isnull=False).select_related("item"))
+
+    def notice_to_act(window_start, window_end):
+        out = []
+        for e in observations:
+            act = next((t for t in first_act.get(e.item_id, []) if t >= e.created_at), None)
+            if act and window_start <= act < window_end:
+                out.append(act - e.created_at)
+        return out
+
+    def taken_in(window_start, window_end):
+        return [e.handled_at - e.created_at for e in observations
+                if e.handled_at and window_start <= e.handled_at < window_end]
+
+    before = since - timedelta(days=days)
+    act_now, act_prev = notice_to_act(since, now), notice_to_act(before, since)
+    taken_now, taken_prev = taken_in(since, now), taken_in(before, since)
+    reorients = [s for s in all_spans if s.reason and s.started_at >= since]
+    reorients_prev = sum(1 for s in all_spans if s.reason and before <= s.started_at < since)
+    verdicts = list(Verdict.objects.filter(item__workspace=workspace, decided_at__gte=before))
+    tested = {key: sum(1 for v in verdicts if v.outcome == key and v.decided_at >= since) for key, _l in Verdict.OUTCOMES}
+    tested_prev = sum(1 for v in verdicts if v.decided_at < since)
+
+    # Where the picture may be out of date: observations nobody has taken in.
+    waiting = {}
+    for e in observations:
+        if not e.handled_at and not e.item.is_done and e.item.merged_into_id is None:
+            waiting.setdefault(e.item, []).append(e)
+    stale = sorted(
+        ({"item": item, "count": len(es), "oldest": now - min(e.created_at for e in es)} for item, es in waiting.items()),
+        key=lambda r: r["oldest"], reverse=True,
+    )[:8]
+
     return render(request, "board/tempo.html", {
         "days": days,
         "phase_rows": phase_rows,
@@ -694,6 +849,16 @@ def tempo(request):
         "loops_closed_previous": len(loops_prev),
         "weeks": weeks,
         "stuck": stuck,
+        "notice_to_act": median(act_now) if act_now else None,
+        "notice_to_act_previous": median(act_prev) if act_prev else None,
+        "taken_in": median(taken_now) if taken_now else None,
+        "taken_in_previous": median(taken_prev) if taken_prev else None,
+        "reorients": reorients,
+        "reorients_previous": reorients_prev,
+        "tested": tested,
+        "tested_total": sum(tested.values()),
+        "tested_previous": tested_prev,
+        "stale": stale,
     })
 
 

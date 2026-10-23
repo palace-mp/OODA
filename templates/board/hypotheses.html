@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% load i18n ooda %}
+{% block title %}{% translate "Hypotheses" %}{% endblock %}
+{% block content %}
+<div class="narrow wide-ish">
+  <h1>{% translate "Hypotheses" %}</h1>
+  <p class="lede">{% translate "Every assumption the board has set out to test, and how it came out. A portfolio of bets: see where to double down and where to change course." %}</p>
+
+  <p class="views">
+    <a href="?" {% if not status %}aria-current="true"{% endif %}>{% translate "All" %} <span class="meta">{{ total }}</span></a>
+    {% for key, label in statuses %}{% with n=counts|get_item:key %}{% if n %}
+    <a href="?status={{ key }}" {% if status == key %}aria-current="true"{% endif %}>{{ label }} <span class="meta">{{ n }}</span></a>
+    {% endif %}{% endwith %}{% endfor %}
+  </p>
+
+  {% if hypotheses %}
+  <table class="items hypotheses">
+    <thead><tr><th>{% translate "Status" %}</th><th>{% translate "Hypothesis" %}</th><th>{% translate "Item" %}</th><th>{% translate "If it fails, we will" %}</th></tr></thead>
+    <tbody>
+      {% for h in hypotheses %}
+      <tr>
+        <td class="nowrap"><span class="hstatus h-{{ h.status }}">{{ h.status_label }}</span></td>
+        <td>{{ h.text }}</td>
+        <td class="nowrap"><a href="{{ h.item.get_absolute_url }}">#{{ h.item.number }}</a> <span class="meta">{% blocktranslate with n=h.cycle %}loop {{ n }}{% endblocktranslate %}</span><br><span class="meta">{{ h.item.title|truncatechars:36 }}</span></td>
+        <td class="meta">{{ h.then|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">{% translate "No hypotheses yet. They appear here when experiments are written in Decide." %}</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -66,3 +66,8 @@ def review_requested(item, doc, users, by):
     _send(users, _("Review asked for: #%(n)s %(t)s (%(phase)s)") % {
         "n": item.number, "t": item.title, "phase": doc.get_phase_display()},
         "email/review.txt", {"item": item, "doc": doc, "by": by}, exclude=by)
+
+
+def observed(item, users, by, text):
+    _send(users, _("New observation on #%(n)s %(t)s") % {"n": item.number, "t": item.title},
+          "email/observed.txt", {"item": item, "by": by, "text": text}, exclude=by)

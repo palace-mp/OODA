@@ -137,7 +137,7 @@ class Item(models.Model):
         PhaseSpan.objects.filter(item=self, ended_at__isnull=True).update(reason=reason[:2000])
 
     def pending_observations(self):
-        return self.entries.filter(kind=Entry.OBSERVATION, handled_at__isnull=True)
+        return self.entries.filter(handled_at__isnull=True)
 
     @transaction.atomic
     def set_phase(self, phase, by=None):

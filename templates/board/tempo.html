@@ -4,13 +4,69 @@
 {% block content %}
 <div class="narrow wide-ish">
   <h1>{% translate "Tempo" %}</h1>
-  <p class="lede">{% translate "How fast the loop turns. Shorter is better: whoever observes, orients, decides and acts faster sets the pace." %}</p>
+  <p class="lede">{% translate "Tempo is the distance between noticing something and doing something about it — and above all how fast we re-orient when the picture stops fitting." %}</p>
   <p class="views">
     <a href="?days=7" {% if days == 7 %}aria-current="true"{% endif %}>{% translate "7 days" %}</a>
     <a href="?days=30" {% if days == 30 %}aria-current="true"{% endif %}>{% translate "30 days" %}</a>
     <a href="?days=90" {% if days == 90 %}aria-current="true"{% endif %}>{% translate "90 days" %}</a>
   </p>
 
+  <div class="figures">
+    <div class="figure">
+      <p class="big">{{ notice_to_act|span }}</p>
+      <p class="label">{% translate "From noticing to acting" %}</p>
+      <p class="meta">{% translate "An observation noted on an item, until the item is next in Act." %}
+        {% if notice_to_act_previous %}{% blocktranslate with t=notice_to_act_previous|span %}{{ t }} the period before.{% endblocktranslate %}{% endif %}</p>
+    </div>
+    <div class="figure">
+      <p class="big">{{ taken_in|span }}</p>
+      <p class="label">{% translate "Taking an observation in" %}</p>
+      <p class="meta">{% translate "Until someone re-orients on it, notes it or carries it into the next loop." %}
+        {% if taken_in_previous %}{% blocktranslate with t=taken_in_previous|span %}{{ t }} the period before.{% endblocktranslate %}{% endif %}</p>
+    </div>
+    <div class="figure">
+      <p class="big">{{ reorients|length }}</p>
+      <p class="label">{% translate "Re-orientations" %}</p>
+      <p class="meta">{% translate "Times someone went back to Orient because the picture no longer fit." %}
+        {% blocktranslate with n=reorients_previous %}{{ n }} the period before.{% endblocktranslate %}</p>
+    </div>
+    <div class="figure">
+      <p class="big">{{ tested_total }}</p>
+      <p class="label">{% translate "Assumptions tested" %}</p>
+      <p class="meta">
+        {% for key, n in tested.items %}{% if n %}<span class="hstatus h-{{ key }}">{{ n }} {{ key }}</span> {% endif %}{% endfor %}
+        {% blocktranslate with n=tested_previous %}{{ n }} the period before. A failed assumption is learning too.{% endblocktranslate %}</p>
+    </div>
+  </div>
+
+  {% if stale %}
+  <h2>{% translate "The picture may be out of date" %}</h2>
+  <p class="meta">{% translate "Items with observations nobody has taken in yet, oldest first." %}</p>
+  <table class="items compact">
+    {% for r in stale %}
+    <tr>
+      <td class="num">{{ r.item.number }}</td>
+      <td class="title"><a href="{{ r.item.get_absolute_url }}#observations">{{ r.item.title }}</a></td>
+      <td><span class="phase p-{{ r.item.phase }}">{{ r.item.get_phase_display }}</span></td>
+      <td class="meta nowrap">{% blocktranslate count n=r.count %}{{ n }} observation{% plural %}{{ n }} observations{% endblocktranslate %}</td>
+      <td class="right nowrap">{{ r.oldest|span }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if reorients %}
+  <h2>{% translate "Recent re-orientations" %}</h2>
+  <ul class="plain reorient-list">
+    {% for s in reorients %}
+    <li><a href="{{ s.item.get_absolute_url }}">#{{ s.item.number }} {{ s.item.title }}</a>
+      <span class="meta">{{ s.started_at|date:"j M" }}{% if s.moved_by %} · {{ s.moved_by.name }}{% endif %}</span>
+      <div class="meta">{{ s.reason|truncatechars:160 }}</div></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2>{% translate "The loop itself" %}</h2>
   <div class="figures">
     <div class="figure">
       <p class="big">{{ loop_median|span }}</p>

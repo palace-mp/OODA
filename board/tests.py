@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from accounts.models import Invite, Membership, User, Workspace
 
-from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Document, Entry, Field, FieldOption, Item, PhaseSpan, Reply
+from .models import ACT, DECIDE, OBSERVE, ORIENT, Comment, Document, Entry, Field, FieldOption, Item, PhaseSpan, Reply, Verdict
 
 
 class Base(TestCase):
@@ -100,20 +100,14 @@ class InboxTests(Base):
         self.assertTrue(item.document.body.startswith("<p>Customers churn after onboarding<br>more</p><h3>"))
         self.assertFalse(Entry.objects.exists())
 
-    def test_filed_note_is_added_to_the_document(self):
-        item = self.item(body="<p>Start</p>")
-        entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Gate <stuck>", author=self.bo)
-        self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": f"#{item.number}"})
-        self.assertIn("<strong>Observation:</strong> Gate &lt;stuck&gt;", item.document.body)
-        self.assertEqual(item.document.version, 1)
-
-    def test_member_filing_under_others_item_leaves_a_comment(self):
+    def test_filed_note_waits_on_the_item_as_an_observation(self):
         item = self.item(body="<p>Start</p>")
         self.client.force_login(self.bo)
-        entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Seen it", author=self.bo)
+        entry = Entry.objects.create(workspace=self.ws, kind="observation", body="Gate <stuck>", author=self.bo)
         self.client.post(reverse("board:file_entry", args=[entry.pk]), {"into": f"#{item.number}"})
+        self.assertEqual(list(item.pending_observations()), [entry])
         self.assertEqual(item.document.body, "<p>Start</p>")
-        self.assertEqual(item.document.comments.get().body, "Observation: Seen it")
+        self.assertContains(self.client.get(item.get_absolute_url()), "Gate &lt;stuck&gt;")
 
 
 class StructureTests(Base):
@@ -660,3 +654,101 @@ class TidyLabelTests(TestCase):
 
         self.assertEqual(tidy("<ul><li><strong>Result:</strong> </li></ul>"), "")
         self.assertEqual(tidy("<ul><li><strong>Result:1 jam</strong></li></ul>"), "<ul><li><strong>Result:1 jam</strong></li></ul>")
+
+
+class LoopFeedbackTests(Base):
+    """Observations at any time, re-orienting, outcomes per experiment and the hypotheses portfolio."""
+
+    def setUp(self):
+        super().setUp()
+        self.it = self.item("Printer")
+        self.it.assignees.add(self.anna)
+
+    def to_act(self, then="Buy a new tray"):
+        it = self.it
+        it.advance(self.anna)
+        it.advance(self.anna)
+        decide = it.document
+        decide.body = decide.body.replace(
+            "<li><strong>Hypothesis:</strong> </li>", "<li><strong>Hypothesis:</strong> The batch overloads the tray.</li>", 1
+        ).replace("<li><strong>If it fails, we will:</strong> </li>", f"<li><strong>If it fails, we will:</strong> {then}</li>", 1)
+        decide.save()
+        it.advance(self.anna)
+        return it
+
+    def test_anyone_notes_an_observation_and_the_editors_hear(self):
+        self.client.force_login(self.bo)
+        self.client.post(reverse("board:observe_now", args=[self.it.number]), {"body": "Jammed again at 9:12"})
+        self.assertEqual(self.it.pending_observations().get().body, "Jammed again at 9:12")
+        self.assertEqual([m.to for m in mail.outbox], [["anna@example.com"]])
+
+    def test_only_editors_take_observations_in(self):
+        e = Entry.objects.create(workspace=self.ws, item=self.it, body="Seen", author=self.bo)
+        self.client.force_login(self.bo)
+        self.client.post(reverse("board:observation_noted", args=[e.pk]), {"action": "noted"})
+        e.refresh_from_db()
+        self.assertIsNone(e.handled_at)
+        self.client.force_login(self.anna)
+        self.client.post(reverse("board:observation_noted", args=[e.pk]), {"action": "add"})
+        e.refresh_from_db()
+        self.assertEqual(e.handled_how, "added")
+        self.assertIn("Seen", self.it.document.body)
+
+    def test_reorient_from_act_goes_back_with_a_reason(self):
+        it = self.to_act()
+        e = Entry.objects.create(workspace=self.ws, item=it, body="The paper was damp all week", author=self.bo)
+        self.client.post(reverse("board:reorient", args=[it.number]), {"observation": e.pk})
+        it.refresh_from_db()
+        self.assertEqual(it.phase, ORIENT)
+        self.assertEqual(it.cycle, 1)
+        self.assertEqual(it.spans.last().reason, "The paper was damp all week")
+        self.assertIn("<h3>Re-oriented: what no longer fits</h3><p>The paper was damp all week</p>", it.document.body)
+        e.refresh_from_db()
+        self.assertEqual(e.handled_how, "reoriented")
+        self.assertContains(self.client.get(it.get_absolute_url()), "Re-oriented by")
+
+    def test_reorient_needs_decide_or_act_and_an_editor(self):
+        self.client.post(reverse("board:reorient", args=[self.it.number]), {"reason": "x"})
+        self.it.refresh_from_db()
+        self.assertEqual(self.it.phase, OBSERVE)
+        it = self.to_act()
+        self.client.force_login(self.bo)
+        self.assertEqual(self.client.post(reverse("board:reorient", args=[it.number]), {"reason": "x"}).status_code, 403)
+
+    def test_next_loop_starts_with_waiting_observations(self):
+        it = self.to_act()
+        e = Entry.objects.create(workspace=self.ws, item=it, body="Two jams on Tuesday", author=self.bo)
+        it.advance(self.anna)
+        self.assertIn("<li>Two jams on Tuesday <em>— Bo Ek</em></li>", it.document.body.split("<h3>Where and when?")[0])
+        e.refresh_from_db()
+        self.assertEqual(e.handled_how, "carried")
+
+    def test_verdicts_and_the_pre_decided_response(self):
+        it = self.to_act()
+        url = reverse("board:verdict", args=[it.number])
+        self.client.post(url, {"experiment": "Experiment 1", "outcome": "failed"})
+        self.client.post(url, {"experiment": "Not an experiment", "outcome": "held"})
+        self.assertEqual(list(Verdict.objects.values_list("experiment", "outcome")), [("Experiment 1", "failed")])
+        r = self.client.get(it.get_absolute_url())
+        self.assertContains(r, "Buy a new tray")
+        self.client.post(url, {"experiment": "Experiment 1", "outcome": ""})
+        self.assertFalse(Verdict.objects.exists())
+
+    def test_hypotheses_page_shows_the_portfolio(self):
+        it = self.to_act()
+        r = self.client.get(reverse("board:hypotheses"))
+        self.assertEqual([(h.text, h.status) for h in r.context["hypotheses"]], [("The batch overloads the tray.", "testing")])
+        Verdict.objects.create(item=it, cycle=1, experiment="Experiment 1", outcome="held")
+        r = self.client.get(reverse("board:hypotheses") + "?status=held")
+        self.assertEqual(len(r.context["hypotheses"]), 1)
+
+    def test_tempo_measures_noticing_to_acting(self):
+        Entry.objects.create(workspace=self.ws, item=self.it, body="Seen", author=self.bo)
+        PhaseSpan.objects.filter(item=self.it).update(started_at=timezone.now() - timedelta(hours=5))
+        Entry.objects.filter(item=self.it).update(created_at=timezone.now() - timedelta(hours=4))
+        self.to_act()
+        Verdict.objects.create(item=self.it, cycle=1, experiment="Experiment 1", outcome="failed")
+        r = self.client.get(reverse("board:tempo"))
+        self.assertGreater(r.context["notice_to_act"], timedelta(hours=3))
+        self.assertEqual(r.context["tested"]["failed"], 1)
+        self.assertEqual(r.context["stale"][0]["item"], self.it)

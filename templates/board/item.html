@@ -50,6 +50,16 @@
           </button>
         </form>
         {% endif %}
+        {% if item.phase == "decide" or item.phase == "act" %}{% if not item.is_done %}
+        <details class="reorient-box">
+          <summary class="button">{% translate "Re-orient" %} ↺</summary>
+          <form method="post" action="{% url 'board:reorient' item.number %}" class="stack">{% csrf_token %}
+            <label class="field">{% translate "What no longer fits our picture?" %}
+              <textarea name="reason" rows="3" required></textarea></label>
+            <div class="row"><button class="primary">{% translate "Back to Orient" %}</button></div>
+          </form>
+        </details>
+        {% endif %}{% endif %}
         <form method="post" action="{% url 'board:done' item.number %}">{% csrf_token %}
           <button>{% if item.is_done %}{% translate "Reopen" %}{% else %}{% translate "Mark done" %}{% endif %}</button>
         </form>
@@ -96,6 +106,79 @@
     <span class="doc-status s-{{ doc.status }}">{{ doc.get_status_display }}{% if doc.status == "review" and doc.submitted_by %} · {% blocktranslate with who=doc.submitted_by.name %}asked by {{ who }}{% endblocktranslate %}{% endif %}</span>
     {% if guide %}<span class="guide-text">{{ guide }}</span>{% endif %}
   </p>
+
+  {% if reoriented %}
+  <p class="reoriented">
+    ↺ {% blocktranslate with who=reoriented.moved_by.name|default:_("someone") when=reoriented.started_at|date:"j M" %}Re-oriented by {{ who }} on {{ when }}:{% endblocktranslate %}
+    <em>{{ reoriented.reason|truncatechars:240 }}</em>
+  </p>
+  {% endif %}
+
+  {% if is_current and not public %}
+  <section id="observations" class="observations{% if pending %} has-pending{% endif %}">
+    {% if pending %}
+    <h2>{% blocktranslate count n=pending|length %}{{ n }} new observation{% plural %}{{ n }} new observations{% endblocktranslate %}
+      <span class="meta">— {% translate "does the picture still hold?" %}</span></h2>
+    <ul class="plain">
+      {% for e in pending %}
+      <li class="pending-obs">
+        <div class="obs-body">{{ e.body|rich }}</div>
+        <p class="meta">{% if e.kind != "observation" %}{{ e.get_kind_display }} · {% endif %}{{ e.author.name|default:_("someone") }} · {{ e.created_at|date:"j M, H:i" }}
+        {% if can_change %}
+          {% if item.phase == "decide" or item.phase == "act" %}
+          <form method="post" action="{% url 'board:reorient' item.number %}" class="inline">{% csrf_token %}
+            <input type="hidden" name="observation" value="{{ e.pk }}">
+            <button class="small">{% translate "Re-orient on this" %} ↺</button>
+          </form>
+          {% else %}
+          <form method="post" action="{% url 'board:observation_noted' e.pk %}" class="inline">{% csrf_token %}
+            <button class="small" name="action" value="add">{% translate "Add to the document" %}</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{% url 'board:observation_noted' e.pk %}" class="inline">{% csrf_token %}
+            <button class="link" name="action" value="noted">{% translate "noted, the picture holds" %}</button>
+          </form>
+        {% endif %}
+        </p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if not item.is_done %}
+    <form method="post" action="{% url 'board:observe_now' item.number %}" class="observe-now">{% csrf_token %}
+      <input name="body" required autocomplete="off" aria-label="{% translate 'New observation' %}"
+        placeholder="{% translate 'Noticed something? Note an observation — whatever phase this is in…' %}">
+      <button>{% translate "Note" %}</button>
+    </form>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if outcomes %}
+  <section id="outcomes" class="outcomes">
+    <h2>{% translate "Outcome per experiment" %}</h2>
+    <ul class="plain">
+      {% for o in outcomes %}
+      <li class="outcome{% if o.verdict %} v-{{ o.verdict.outcome }}{% endif %}">
+        <div class="outcome-text"><strong>{{ o.name }}</strong>{% if o.hypothesis %} — {{ o.hypothesis }}{% endif %}</div>
+        {% if can_change and is_current %}
+        <form method="post" action="{% url 'board:verdict' item.number %}" class="verdicts">{% csrf_token %}
+          <input type="hidden" name="experiment" value="{{ o.name }}">
+          {% for key, label in verdict_choices %}
+          <button name="outcome" value="{% if o.verdict.outcome == key %}{% else %}{{ key }}{% endif %}" class="small v-{{ key }}" aria-pressed="{% if o.verdict.outcome == key %}true{% else %}false{% endif %}">{{ label }}</button>
+          {% endfor %}
+        </form>
+        {% else %}
+        <span class="verdict-label">{{ o.verdict.get_outcome_display|default:_("not decided") }}</span>
+        {% endif %}
+        {% if o.verdict.outcome == "failed" and o.then %}
+        <p class="then">{% translate "Decided in advance — if it fails, we will:" %} <strong>{{ o.then }}</strong></p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
 
   {% if input_doc %}
   <details class="input-doc"{% if is_current and not doc.body|has_content %} open{% endif %}>

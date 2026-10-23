@@ -124,3 +124,8 @@ def tidy(html):
     from board.document import tidy as clean
 
     return mark_safe(clean(html))
+
+
+@register.filter
+def get_item(mapping, key):
+    return mapping.get(key)

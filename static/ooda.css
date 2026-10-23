@@ -313,6 +313,46 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .input-doc .input-body { font-size: 0.95rem; color: var(--ink-2); margin-top: 0.8rem; max-height: 22rem; overflow: auto; }
 .input-doc .meta { margin: 0.4rem 0 0.2rem; }
 
+/* Re-orienting and observations that wait to be taken in */
+.reorient-box { position: relative; }
+.reorient-box summary.button {
+  list-style: none; cursor: pointer; border: 1px solid var(--rule-2); border-radius: 2px;
+  padding: 0.38rem 0.9rem; font: 0.85rem var(--sans); color: var(--ink);
+}
+.reorient-box summary.button:hover { border-color: var(--ink); }
+.reorient-box[open] > form {
+  position: absolute; right: 0; top: 2.6rem; z-index: 10; width: 22rem; padding: 1rem;
+  background: var(--sheet); border: 1px solid var(--rule-2); box-shadow: 0 6px 24px rgb(0 0 0 / 0.1);
+}
+.reoriented { margin: 1rem 0 0; padding: 0.6rem 0.9rem; border-left: 3px solid var(--orient); background: var(--sheet); font: 0.88rem var(--sans); color: var(--ink-2); }
+.observations { margin: 1.1rem 0 0; max-width: 760px; }
+.observations.has-pending { border: 1px solid var(--decide); background: var(--sheet); padding: 0.8rem 1rem; border-radius: 3px; }
+.observations h2 { margin: 0 0 0.6rem; color: var(--decide); }
+.observations h2 .meta { letter-spacing: 0; text-transform: none; font-weight: normal; }
+.pending-obs { padding: 0.5rem 0; border-top: 1px solid var(--rule); }
+.pending-obs:first-child { border-top: 0; }
+.pending-obs .meta { margin: 0.3rem 0 0; display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center; }
+.obs-body { white-space: pre-wrap; }
+.observe-now { display: flex; gap: 0.6rem; align-items: baseline; margin-top: 0.6rem; }
+.observe-now input { flex: 1; font-size: 0.95rem; }
+.observe-now button { padding: 0.2rem 0.7rem; font-size: 0.8rem; }
+
+/* Act: the outcome of each experiment */
+.outcomes { margin: 1.2rem 0 0; max-width: 760px; }
+.outcomes h2 { margin: 0 0 0.5rem; }
+.outcome { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; padding: 0.55rem 0; border-top: 1px solid var(--rule); }
+.outcome-text { flex: 1 1 22rem; }
+.verdicts { display: flex; gap: 0.3rem; }
+.verdicts button[aria-pressed="true"].v-held, .hstatus.h-held { background: var(--act); border-color: var(--act); color: var(--paper); }
+.verdicts button[aria-pressed="true"].v-failed, .hstatus.h-failed { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+.verdicts button[aria-pressed="true"].v-unclear, .hstatus.h-unclear { background: var(--muted); border-color: var(--muted); color: var(--paper); }
+.verdict-label { font: 0.8rem var(--sans); color: var(--muted); }
+.then { flex-basis: 100%; margin: 0.2rem 0 0; font: 0.88rem var(--sans); color: var(--accent); }
+.hstatus { font: 600 0.66rem var(--sans); letter-spacing: 0.08em; text-transform: uppercase; padding: 0.15rem 0.4rem; border-radius: 2px; border: 1px solid var(--rule-2); color: var(--ink-2); }
+.hstatus.h-testing { border-color: var(--act); color: var(--act); }
+.hstatus.h-planned { border-color: var(--decide); color: var(--decide); }
+.items.hypotheses td { vertical-align: top; }
+
 /* Formatting toolbar */
 .toolbar {
   position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 0.15rem;
@@ -424,6 +464,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .figure .big { font-size: 3rem; line-height: 1; margin: 0; font-variant-numeric: lining-nums; }
 .figure .label { margin: 0.5rem 0 0.2rem; color: var(--ink-2); }
 .figure .meta { margin: 0; }
+.figures + h2 { margin-top: 2.6rem; }
+.reorient-list li { padding: 0.4rem 0; border-bottom: 1px solid var(--rule); }
 table.phases th { text-align: left; width: 7rem; padding: 0.55rem 0; font-weight: normal; }
 table.phases td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--rule); }
 table.phases th { border-bottom: 1px solid var(--rule); }

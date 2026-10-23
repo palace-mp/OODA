@@ -21,6 +21,7 @@
         <nav>
           <a href="{% url 'board:index' %}" {% if name == 'index' or name == 'item' or name == 'new' %}aria-current="page"{% endif %}>{% translate "Board" %}</a>
           <a href="{% url 'board:inbox' %}" {% if name == 'inbox' %}aria-current="page"{% endif %}>{% translate "Inbox" %}{% if inbox_count %} <span class="count">{{ inbox_count }}</span>{% endif %}</a>
+          <a href="{% url 'board:hypotheses' %}" {% if name == 'hypotheses' %}aria-current="page"{% endif %}>{% translate "Hypotheses" %}</a>
           <a href="{% url 'board:tempo' %}" {% if name == 'tempo' %}aria-current="page"{% endif %}>{% translate "Tempo" %}</a>
           <a href="{% url 'settings' %}" {% if name == 'settings' %}aria-current="page"{% endif %}>{% translate "Settings" %}</a>
           <a href="{% url 'profile' %}" class="me" title="{{ user.email }}" {% if name == 'profile' %}aria-current="page"{% endif %}>{{ user.name }}</a>

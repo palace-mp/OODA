@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Membership, User, Workspace
-from board.models import Comment, Entry, Field, FieldOption, Item, Link, Reply
+from board.models import Comment, Entry, Field, FieldOption, Item, Link, Reply, Verdict
 
 
 class Command(BaseCommand):
@@ -77,8 +77,22 @@ class Command(BaseCommand):
                             "<p>The funnel shows 41% stop at the step where they invite their team.</p>",
             ("orient", 1): "<p>Most who stop work alone. Asking for a team before they have seen any value "
                            "feels like a wall.</p>",
-            ("decide", 1): "<p>Make the invite step skippable and move it to after the first item.</p>",
-            ("act", 1): "<p>Shipped the skippable step on 7 October.</p>",
+            ("decide", 1): (
+                "<h3>Assumptions from Orient to validate</h3><ul><li>Solo users see no reason to invite anyone.</li></ul>"
+                "<h3>Experiment 1</h3><ul>"
+                "<li><strong>Hypothesis:</strong> Solo users stop because the invite step comes too early.</li>"
+                "<li><strong>What we do:</strong> Make the invite step skippable for two weeks.</li>"
+                "<li><strong>How we measure:</strong> Share who stop at the invite step, from the funnel.</li>"
+                "<li><strong>It holds if:</strong> Drop-off at that step falls below 20%.</li>"
+                "<li><strong>It fails if:</strong> It stays above 35%.</li>"
+                "<li><strong>If it fails, we will:</strong> Interview five who stopped before changing anything else.</li>"
+                "<li><strong>Time and cost:</strong> Two weeks, half a day of work.</li></ul>"
+            ),
+            ("act", 1): (
+                "<h3>Journal</h3><p><strong>7 Oct · Jonas Ek</strong> — Shipped the skippable step.</p>"
+                "<h3>Results as observations</h3><ul><li><strong>Experiment 1 — Solo users stop because the invite "
+                "step comes too early:</strong> Drop-off at the invite step went from 41% to 18% in two weeks.</li></ul>"
+            ),
             ("observe", 2): "<p>Drop-off at the invite step is down to 18%, but more people now stop at "
                             "\u201ccreate first item\u201d.</p>",
         }
@@ -99,6 +113,9 @@ class Command(BaseCommand):
                                body="@martin do we know this from the data or from interviews?", author=s)
         Link.objects.create(item=onboarding, url="https://example.com/funnel", label="Funnel dashboard", added_by=s)
 
+        Verdict.objects.create(item=onboarding, cycle=1, experiment="Experiment 1", outcome="held", decided_by=m)
+        Entry.objects.create(workspace=ws, item=onboarding, kind="observation", author=j,
+                             body="Three trial users asked support this week how to skip the team step entirely.")
         server = make("Move hosting to a server in the EU", "decide", [j], "Operations", 6,
                       body="<p>Compare two or three providers on price, location and backups.</p>",
                       deadline=today + timedelta(days=12))
