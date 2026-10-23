@@ -1,7 +1,6 @@
 {% load i18n %}
 {% if form.non_field_errors %}<p class="error">{{ form.non_field_errors|join:" " }}</p>{% endif %}
-<label class="field">{{ form.title.label }}{{ form.title }}{{ form.title.errors }}</label>
-<label class="field">{{ form.body.label }}{{ form.body }}</label>
+{% if form.title %}<label class="field">{{ form.title.label }}{{ form.title }}{{ form.title.errors }}</label>{% endif %}
 <div class="grid2">
   <label class="field">{{ form.deadline.label }}{{ form.deadline }}{{ form.deadline.errors }}</label>
   <label class="field">{{ form.parent.label }}{{ form.parent }}{{ form.parent.errors }}</label>

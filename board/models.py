@@ -7,6 +7,11 @@ from django.utils.translation import gettext_lazy as _
 
 from accounts.models import Workspace
 
+from .document import (
+    add_to_first_section, has_content, heading, observations_list, plain_text, results_heading, section_html,
+    template as document_template,
+)
+
 User = settings.AUTH_USER_MODEL
 
 OBSERVE, ORIENT, DECIDE, ACT = "observe", "orient", "decide", "act"
@@ -29,7 +34,6 @@ class Item(models.Model):
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="items")
     number = models.PositiveIntegerField(editable=False)
     title = models.CharField(_("title"), max_length=200)
-    body = models.TextField(_("description"), blank=True)
 
     phase = models.CharField(_("phase"), max_length=10, choices=PHASES, default=OBSERVE)
     cycle = models.PositiveIntegerField(_("loop"), default=1)
@@ -71,8 +75,45 @@ class Item(models.Model):
                 self.number = last + 1
                 super().save(*args, **kwargs)
                 PhaseSpan.objects.create(item=self, phase=self.phase, cycle=self.cycle, started_at=self.created_at)
+                self.open_document()
             return
         super().save(*args, **kwargs)
+
+    @property
+    def document(self):
+        """The document for the phase and loop the item is in now."""
+        return self.open_document()
+
+    def open_document(self):
+        doc = Document.objects.filter(item=self, phase=self.phase, cycle=self.cycle).first()
+        if doc is None:
+            # The phase before, in this loop; for Observe, the Act that ended the loop before.
+            i = PHASE_ORDER.index(self.phase)
+            cycle = self.cycle - 1 if i == 0 else self.cycle
+            before = Document.objects.filter(item=self, phase=PHASE_ORDER[i - 1], cycle=cycle).first()
+            body = document_template(self.phase, before)
+            pending = list(self.pending_observations().select_related("author")) if self.phase == OBSERVE else []
+            if pending:
+                # Observations noted during the last loop are where this one starts.
+                body = add_to_first_section(body, observations_list(pending))
+                Entry.objects.filter(pk__in=[e.pk for e in pending]).update(
+                    handled_at=timezone.now(), handled_how="carried")
+            doc = Document.objects.create(item=self, phase=self.phase, cycle=self.cycle, body=body)
+        return doc
+
+    def documents_in_order(self):
+        return sorted(self.documents.all(), key=lambda d: (d.cycle, PHASE_ORDER.index(d.phase)))
+
+    def can_edit(self, user, membership):
+        """Owners, assignees and whoever created the item edit the document directly.
+
+        Everyone else in the workspace comments and suggests changes.
+        """
+        if membership is None or membership.workspace_id != self.workspace_id:
+            return False
+        if membership.is_owner or self.created_by_id == user.pk:
+            return True
+        return self.assignees.filter(pk=user.pk).exists()
 
     @property
     def open_dependencies(self):
@@ -93,23 +134,77 @@ class Item(models.Model):
         return PHASE_ORDER.index(self.phase)
 
     @transaction.atomic
+    def reorient(self, by, reason):
+        """Go back to Orient because the picture no longer fits. Counted apart in tempo."""
+        self.set_phase(ORIENT, by)
+        PhaseSpan.objects.filter(item=self, ended_at__isnull=True).update(reason=reason[:2000])
+
+    def pending_observations(self):
+        return self.entries.filter(handled_at__isnull=True)
+
+    @transaction.atomic
     def set_phase(self, phase, by=None):
         """Move to a phase. Going from Act back to Observe starts a new loop."""
         if phase == self.phase:
             return
+        if self.phase == ACT and phase == OBSERVE:
+            self.report_to_parent(by)
         now = timezone.now()
         if self.phase == ACT and phase == OBSERVE:
             self.cycle += 1
         PhaseSpan.objects.filter(item=self, ended_at__isnull=True).update(ended_at=now)
+        Document.objects.filter(item=self, status__in=[Document.DRAFT, Document.REVIEW]).update(status=Document.DONE)
         self.phase = phase
         self.save(update_fields=["phase", "cycle", "updated_at"])
         PhaseSpan.objects.create(item=self, phase=phase, cycle=self.cycle, started_at=now, moved_by=by)
+        doc = self.open_document()
+        if doc.status == Document.DONE:  # back to a phase worked on before in this loop
+            doc.status = Document.DRAFT
+            doc.save(update_fields=["status"])
 
     def advance(self, by=None):
         self.set_phase(next_phase(self.phase), by)
 
+    def report_to_parent(self, by=None):
+        """A finished loop's results become an observation on the item above.
+
+        Loops nest: a slower loop above, faster ones below. What the faster loop
+        learned is how the slower one keeps its picture up to date.
+        """
+        if self.parent_id is None:
+            return None
+        act = Document.objects.filter(item=self, phase=ACT, cycle=self.cycle).first()
+        lines = []
+        if act:
+            found = section_html(act.body, results_heading())
+            lines += [line for line in plain_text(found).splitlines() if line.strip()]
+        for v in self.verdicts.filter(cycle=self.cycle).order_by("experiment"):
+            lines.append(f"{v.experiment}: {v.get_outcome_display().lower()}")
+        if not lines:
+            return None
+        intro = _("From #%(n)s %(t)s, loop %(c)s:") % {"n": self.number, "t": self.title, "c": self.cycle}
+        entry = Entry.objects.create(
+            workspace=self.workspace, item=self.parent, kind=Entry.OBSERVATION, author=by,
+            body=intro + "\n" + "\n".join(lines), cycle=self.parent.cycle, signal=Entry.MEASURED,
+        )
+        from . import notify
+
+        editors = list(self.parent.assignees.all()) or ([self.parent.created_by] if self.parent.created_by else [])
+        notify.observed(self.parent, editors, by, entry.body)
+        return entry
+
+    def depth(self):
+        level, node, seen = 1, self.parent, set()
+        while node is not None and node.pk not in seen:
+            seen.add(node.pk)
+            level += 1
+            node = node.parent
+        return level
+
     @transaction.atomic
     def set_done(self, done, by=None):
+        if done and not self.is_done and self.phase == ACT:
+            self.report_to_parent(by)
         now = timezone.now()
         self.is_done = done
         self.done_at = now if done else None
@@ -123,9 +218,11 @@ class Item(models.Model):
     def merge_into(self, target, by=None):
         """Fold this item into `target`. Everything said about it moves along."""
         assert target.pk != self.pk and target.workspace_id == self.workspace_id
+        mine, theirs = self.document, target.document
         self.entries.update(item=target)
         self.links.update(item=target)
         self.comments.update(item=target)
+        Comment.objects.filter(document=mine).update(document=theirs)
         self.children.exclude(pk=target.pk).update(parent=target)
         target.assignees.add(*self.assignees.all())
         target.options.add(*self.options.all())
@@ -134,11 +231,8 @@ class Item(models.Model):
             blocked.depends_on.add(target)
         self.blocks.clear()
         self.depends_on.clear()
-        if self.body:
-            Entry.objects.create(
-                workspace=self.workspace, item=target, kind=Entry.NOTE, author=by,
-                body=f"#{self.number} {self.title}\n\n{self.body}",
-            )
+        if has_content(mine.body):
+            theirs.append(heading(f"#{self.number} {self.title}") + mine.body)
         target.is_priority = target.is_priority or self.is_priority
         if self.deadline and (not target.deadline or self.deadline < target.deadline):
             target.deadline = self.deadline
@@ -158,6 +252,7 @@ class PhaseSpan(models.Model):
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
     moved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reason = models.TextField(blank=True)  # set when someone went back to Orient on purpose
 
     class Meta:
         ordering = ["started_at"]
@@ -191,6 +286,18 @@ class Entry(models.Model):
     cycle = models.PositiveIntegerField(null=True, blank=True)
     author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="entries")
     created_at = models.DateTimeField(auto_now_add=True)
+    # An observation on an item waits until someone takes it in: re-orients on it,
+    # notes it, or it is carried into the next Observe document.
+    handled_at = models.DateTimeField(null=True, blank=True)
+    handled_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    handled_how = models.CharField(max_length=12, blank=True)
+    # How we know: measured, seen with our own eyes, or felt before it has words.
+    MEASURED, SEEN, FELT = "measured", "seen", "felt"
+    SIGNALS = [(SEEN, _("Seen")), (MEASURED, _("Measured")), (FELT, _("Felt"))]
+    signal = models.CharField(_("how we know"), max_length=10, choices=SIGNALS, default=SEEN)
+    # Sent by a visitor to a published board, who may leave a name but has no user.
+    outside_name = models.CharField(max_length=80, blank=True)
+    from_outside = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["created_at"]
@@ -248,21 +355,160 @@ class FieldOption(models.Model):
         return self.label
 
 
-class Comment(models.Model):
-    """A margin comment anchored to a passage, like in a shared document.
-
-    `target` names the text it belongs to: "body" or "entry-<id>". `quote` is
-    the selected passage, used to find and highlight it again.
+class Document(models.Model):
+    """What was written in one phase of one loop. Each phase starts a new one;
+    the one before is its input, and all of them are kept.
     """
 
+    DRAFT, REVIEW, DONE = "draft", "review", "done"
+    STATUSES = [(DRAFT, _("Draft")), (REVIEW, _("In review")), (DONE, _("Done"))]
+
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="documents")
+    phase = models.CharField(max_length=10, choices=PHASES)
+    cycle = models.PositiveIntegerField()
+    body = models.TextField(blank=True)  # sanitised HTML, see board/document.py
+    version = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=10, choices=STATUSES, default=DRAFT)
+    submitted_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["item", "phase", "cycle"], name="one_document_per_phase")]
+
+    def __str__(self):
+        return f"#{self.item.number} {self.get_phase_display()} {self.cycle}"
+
+    def get_absolute_url(self):
+        return reverse("board:document", args=[self.item.number, self.pk])
+
+    @property
+    def is_current(self):
+        return self.phase == self.item.phase and self.cycle == self.item.cycle
+
+    @property
+    def text(self):
+        return plain_text(self.body)
+
+    def append(self, html):
+        self.body = (self.body or "") + html
+        self.version += 1
+        self.save(update_fields=["body", "version", "updated_at"])
+
+    def previous(self):
+        """The document this one builds on: the phase before, possibly in the loop before."""
+        docs = self.item.documents_in_order()
+        i = docs.index(self)
+        return docs[i - 1] if i > 0 else None
+
+
+class Comment(models.Model):
+    """A margin comment or a suggested change, anchored to a passage of the document.
+
+    `quote` is the passage and `prefix` the text just before it in the same
+    paragraph, so the passage can be found again even if it occurs twice.
+    A suggestion proposes `replacement` in place of `quote`.
+    """
+
+    COMMENT, SUGGESTION, READING = "comment", "suggestion", "reading"
+    # A reading is another way of seeing the passage. It isn't resolved away: it stays
+    # beside the document and is carried into the next phase as input.
+    KINDS = [(COMMENT, _("Comment")), (SUGGESTION, _("Suggestion")), (READING, _("Another reading"))]
+    OPEN, RESOLVED, ACCEPTED, REJECTED = "open", "resolved", "accepted", "rejected"
+    STATUSES = [(OPEN, _("Open")), (RESOLVED, _("Resolved")), (ACCEPTED, _("Accepted")), (REJECTED, _("Rejected"))]
+
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="comments")
-    target = models.CharField(max_length=30, default="body")
+    document = models.ForeignKey(Document, null=True, blank=True, on_delete=models.CASCADE, related_name="comments")
+    kind = models.CharField(max_length=12, choices=KINDS, default=COMMENT)
     quote = models.TextField(blank=True)
-    body = models.TextField(_("comment"))
+    prefix = models.CharField(max_length=60, blank=True)
+    replacement = models.TextField(blank=True)
+    body = models.TextField(_("comment"), blank=True)
     author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="comments")
     created_at = models.DateTimeField(auto_now_add=True)
-    resolved = models.BooleanField(default=False)
-    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    status = models.CharField(max_length=10, choices=STATUSES, default=OPEN)
+    closed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    @property
+    def is_open(self):
+        return self.status == self.OPEN
+
+    @property
+    def is_suggestion(self):
+        return self.kind == self.SUGGESTION
+
+    @property
+    def is_reading(self):
+        return self.kind == self.READING
+
+    def close(self, status, by):
+        self.status = status
+        self.closed_by = by if status != self.OPEN else None
+        self.closed_at = timezone.now() if status != self.OPEN else None
+        self.save(update_fields=["status", "closed_by", "closed_at"])
+
+
+class Reply(models.Model):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name="replies")
+    body = models.TextField(_("reply"))
+    author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name_plural = "replies"
+
+
+class Verdict(models.Model):
+    """How an experiment from Decide came out, recorded in Act."""
+
+    HELD, FAILED, UNCLEAR = "held", "failed", "unclear"
+    OUTCOMES = [(HELD, _("Held")), (FAILED, _("Failed")), (UNCLEAR, _("Unclear"))]
+    # For a risk, the same three answers read differently: it didn't happen, it did, or we can't tell.
+    RISK_OUTCOMES = [(HELD, _("Didn't happen")), (FAILED, _("Happened")), (UNCLEAR, _("Unclear"))]
+
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="verdicts")
+    cycle = models.PositiveIntegerField()
+    experiment = models.CharField(max_length=200)  # its heading in the Decide document
+    outcome = models.CharField(max_length=10, choices=OUTCOMES)
+    decided_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    decided_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["item", "cycle", "experiment"], name="one_verdict")]
+
+
+class Lens(models.Model):
+    """A mental model, book or way of seeing that Orient can borrow from."""
+
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="lenses")
+    name = models.CharField(_("name"), max_length=120)
+    source = models.CharField(_("from"), max_length=160, blank=True)
+    question = models.CharField(_("the question it asks"), max_length=300)
+    note = models.TextField(_("note"), blank=True)
+    added_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Notice(models.Model):
+    """An e-mail held back for someone who reads one summary a day."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notices")
+    subject = models.CharField(max_length=300)
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]

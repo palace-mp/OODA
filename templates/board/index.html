@@ -39,6 +39,12 @@
   </select>
   {% endfor %}
 
+  <select name="level" aria-label="{% translate 'Level' %}">
+    <option value="">{% translate "Any level" %}</option>
+    <option value="top" {% if filters.level == "top" %}selected{% endif %}>{% translate "Top level" %}</option>
+    <option value="sub" {% if filters.level == "sub" %}selected{% endif %}>{% translate "Sub-items" %}</option>
+  </select>
+
   <select name="state" aria-label="{% translate 'State' %}">
     <option value="open" {% if filters.state == "open" %}selected{% endif %}>{% translate "Open" %}</option>
     <option value="done" {% if filters.state == "done" %}selected{% endif %}>{% translate "Done" %}</option>
@@ -132,7 +138,6 @@
       {% endfor %}
       <td class="{% if item.is_overdue %}overdue{% endif %} nowrap">{{ item.deadline|date:"j M"|default:"" }}</td>
       <td class="right meta nowrap">
-        {% if item.entry_count %}<span title="{{ item.entry_count|count_label:'entry' }}">{{ item.entry_count }} ✎</span>{% endif %}
         {% if item.open_comments %}<span title="{{ item.open_comments|count_label:'comment' }}">{{ item.open_comments }} ❝</span>{% endif %}
       </td>
     </tr>

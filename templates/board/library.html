@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "Library" %}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>{% translate "Library" %}</h1>
+  <p class="lede">{% translate "Mental models, books and ways of seeing that Orient can borrow. The more models we can draw from, the better we orient — each one is a question to put to the situation." %}</p>
+  <ul class="plain library">
+    {% for lens in lenses %}
+    <li>
+      <strong>{{ lens.name }}</strong>{% if lens.source %} <span class="meta">— {{ lens.source }}</span>{% endif %}
+      <p class="q">{{ lens.question }}</p>
+      {% if lens.note %}<p class="meta">{{ lens.note }}</p>{% endif %}
+      {% if membership.is_owner or lens.added_by_id == user.pk %}
+      <form method="post" action="{% url 'board:delete_lens' lens.pk %}" class="inline" data-confirm="{% translate 'Remove this lens from the library?' %}">{% csrf_token %}<button class="link">{% translate "remove" %}</button></form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <details class="edit" open>
+    <summary>{% translate "Add a lens" %}</summary>
+    <form method="post" class="stack">{% csrf_token %}
+      <label class="field">{% translate "Name" %}<input name="name" required maxlength="120"></label>
+      <label class="field">{% translate "From (a book, a person, a field)" %}<input name="source" maxlength="160"></label>
+      <label class="field">{% translate "The question it asks" %}<input name="question" required maxlength="300"></label>
+      <label class="field">{% translate "Note" %}<textarea name="note" rows="2"></textarea></label>
+      <div class="row"><button class="primary">{% translate "Add" %}</button></div>
+    </form>
+  </details>
+</div>
+{% endblock %}

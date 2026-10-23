@@ -1,0 +1,9 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with who=by.name n=item.number t=item.title %}{{ who }} suggests a change to #{{ n }} {{ t }}:{% endblocktranslate %}
+
+- {{ c.quote }}
++ {{ c.replacement }}
+{% if c.body %}
+{{ c.body }}
+{% endif %}
+{{ site_url }}{{ item.get_absolute_url }}#c{{ c.pk }}
+{% endautoescape %}

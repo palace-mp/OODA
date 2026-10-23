@@ -7,10 +7,9 @@ from .models import Entry, Field, FieldOption, Item, Link
 class ItemForm(forms.ModelForm):
     class Meta:
         model = Item
-        fields = ["title", "body", "deadline", "is_priority", "assignees", "parent"]
+        fields = ["title", "deadline", "is_priority", "assignees", "parent"]
         widgets = {
             "title": forms.TextInput(attrs={"placeholder": _("What needs doing?"), "autofocus": True}),
-            "body": forms.Textarea(attrs={"rows": 6, "placeholder": _("Background, context, what done looks like…")}),
             "deadline": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "assignees": forms.CheckboxSelectMultiple,
         }
@@ -18,6 +17,8 @@ class ItemForm(forms.ModelForm):
     def __init__(self, *args, workspace, **kwargs):
         super().__init__(*args, **kwargs)
         self.workspace = workspace
+        if self.instance.pk:
+            del self.fields["title"]  # edited in place, together with the document
         self.fields["assignees"].queryset = workspace_users(workspace)
         parents = Item.objects.filter(workspace=workspace, is_done=False, merged_into=None)
         if self.instance.pk:
@@ -72,15 +73,21 @@ def workspace_users(workspace):
 class EntryForm(forms.ModelForm):
     class Meta:
         model = Entry
-        fields = ["kind", "body"]
+        fields = ["kind", "signal", "body"]
         widgets = {
             "kind": forms.RadioSelect,
+            "signal": forms.RadioSelect,
             "body": forms.Textarea(attrs={"rows": 3, "placeholder": _("What did you see, think, decide or do?")}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["kind"].choices = Entry.WRITABLE_KINDS
+        self.fields["signal"].required = False
+        self.fields["signal"].initial = Entry.SEEN
+
+    def clean_signal(self):
+        return self.cleaned_data.get("signal") or Entry.SEEN
 
 
 class LinkForm(forms.ModelForm):

@@ -11,7 +11,7 @@ from django.utils.translation import gettext as _, ngettext
 register = template.Library()
 
 URL = re.compile(r"(https?://[^\s<]+[^\s<.,;:!?)\]'\"])")
-MENTION = re.compile(r"(?<![\w@&])@([\w.-]+)")
+MENTION = re.compile(r"(?<![\w@&])@([\w-]+(?:\.[\w-]+)*)")
 REF = re.compile(r"(?<![\w&/])#(\d+)\b")
 
 
@@ -103,3 +103,29 @@ def contains(collection, value):
 @register.filter
 def options_for(item, field):
     return item.options_for(field)
+
+
+@register.filter
+def has_content(html):
+    from board.document import has_content as check
+
+    return check(html)
+
+
+@register.simple_tag(takes_context=True)
+def document_url(context, doc):
+    if context.get("public"):
+        return reverse("public_document", args=[context["token"], doc.item.number, doc.pk])
+    return doc.get_absolute_url()
+
+
+@register.filter
+def tidy(html):
+    from board.document import tidy as clean
+
+    return mark_safe(clean(html))
+
+
+@register.filter
+def get_item(mapping, key):
+    return mapping.get(key)

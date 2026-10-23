@@ -1,32 +1,33 @@
 {% extends "base.html" %}
-{% load i18n ooda %}
+{% load i18n static ooda %}
 {% block title %}#{{ item.number }} {{ item.title }}{% endblock %}
 {% block bodyclass %}page-item{% endblock %}
 {% block content %}
-{% ref_base as base %}
 
-<article class="item{% if item.is_done %} done{% endif %}" data-comment-url="{% if not public %}{% url 'board:comment' item.number %}{% endif %}">
+<article class="item{% if item.is_done %} done{% endif %}" id="item"
+  {% if can_edit %}data-save-url="{% url 'board:save' item.number %}" data-version="{{ doc.version }}"{% endif %}
+  {% if can_comment and not public %}data-comment-url="{% url 'board:comment' item.number %}"{% endif %}>
 
   <header class="item-head">
-    <p class="kicker">
-      <a href="{% if public %}{% url 'public_index' token %}{% else %}{% url 'board:index' %}{% endif %}">←</a>
-      #{{ item.number }}
-      {% if item.parent %} · {% translate "part of" %} <a href="{% item_url item.parent %}">#{{ item.parent.number }} {{ item.parent.title }}</a>{% endif %}
-      {% if item.is_done %} · <strong>{% translate "done" %}</strong>{% endif %}
-    </p>
-    <h1>{{ item.title }}{% if item.is_priority %} <span class="flag">{% translate "priority" %}</span>{% endif %}</h1>
+    <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+      <ol>
+        <li><a href="{% if public %}{% url 'public_index' token %}{% else %}{% url 'board:index' %}{% endif %}">{% if public %}{{ workspace.name }}{% else %}{% translate "Board" %}{% endif %}</a></li>
+        {% for a in ancestors %}<li><a href="{% item_url a %}">#{{ a.number }} {{ a.title|truncatechars:40 }}</a></li>{% endfor %}
+        <li aria-current="page">#{{ item.number }} {{ item.title|truncatechars:60 }}</li>
+      </ol>
+      {% if item.is_done %}<span class="state">{% translate "done" %}</span>{% endif %}
+      {% if item.is_priority %}<span class="flag">{% translate "priority" %}</span>{% endif %}
+    </nav>
 
     <div class="loop-bar">
       <ol class="stepper" aria-label="{% translate 'OODA phase' %}">
         {% for key, label in phases %}
         <li class="{% if key == item.phase %}current{% endif %} p-{{ key }}">
-          {% if public or item.is_done %}
-            <span>{{ label }}</span>
-          {% else %}
+          {% if can_change and not item.is_done %}
           <form method="post" action="{% url 'board:phase' item.number %}">{% csrf_token %}
             <button name="phase" value="{{ key }}" {% if key == item.phase %}aria-current="step"{% endif %}>{{ label }}</button>
           </form>
-          {% endif %}
+          {% else %}<span>{{ label }}</span>{% endif %}
         </li>
         {% endfor %}
       </ol>
@@ -35,185 +36,370 @@
         {% if in_phase_for and not item.is_done %} · {% blocktranslate with t=in_phase_for|span %}{{ t }} in this phase{% endblocktranslate %}{% endif %}
         {% if avg_loop %} · {% blocktranslate with t=avg_loop|span %}a loop takes {{ t }}{% endblocktranslate %}{% endif %}
       </p>
-      {% if not public %}
+      {% if can_change %}
       <div class="actions">
         {% if not item.is_done %}
+        {% if item.document.status == "draft" %}
+        <form method="post" action="{% url 'board:review' item.number %}">{% csrf_token %}
+          <button>{% translate "Submit for review" %}</button>
+        </form>
+        {% endif %}
         <form method="post" action="{% url 'board:phase' item.number %}">{% csrf_token %}
-          <button name="phase" value="next" class="primary">
+          <button name="phase" value="next" class="primary" {% if next_warning %}title="{{ next_warning }}"{% endif %}>
             {% if item.phase == "act" %}{% translate "Observe the result" %} ↻{% else %}{% translate "Next phase" %} →{% endif %}
           </button>
         </form>
         {% endif %}
+        {% if item.phase == "decide" or item.phase == "act" %}{% if not item.is_done %}
+        <details class="reorient-box">
+          <summary class="button">{% translate "Re-orient" %} ↺</summary>
+          <form method="post" action="{% url 'board:reorient' item.number %}" class="stack">{% csrf_token %}
+            <label class="field">{% translate "What no longer fits our picture?" %}
+              <textarea name="reason" rows="3" required></textarea></label>
+            <div class="row"><button class="primary">{% translate "Back to Orient" %}</button></div>
+          </form>
+        </details>
+        {% endif %}{% endif %}
         <form method="post" action="{% url 'board:done' item.number %}">{% csrf_token %}
           <button>{% if item.is_done %}{% translate "Reopen" %}{% else %}{% translate "Mark done" %}{% endif %}</button>
         </form>
       </div>
       {% endif %}
     </div>
+
+    {% if public and workspace.open_to_observations and not item.is_done %}
+    <details class="chip public-observe">
+      <summary>+ {% translate "Seen something we should know? Tell us" %}</summary>
+      <form method="post" action="{% url 'public_observe' token item.number %}" class="stack">{% csrf_token %}
+        <label class="field">{% translate "What did you see?" %}<textarea name="body" rows="3" required></textarea></label>
+        <label class="field">{% translate "Your name (optional)" %}<input name="name" maxlength="80"></label>
+        <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+        <div class="row"><button class="primary">{% translate "Send" %}</button></div>
+      </form>
+    </details>
+    {% endif %}
+    <p class="story-link"><a href="{% if public %}{% url 'public_story' token item.number %}{% else %}{% url 'board:story' item.number %}{% endif %}">{% translate "Read the story so far" %} →</a></p>
+    <dl class="facts-line">
+      {% if voices <= 1 and not public %}<div class="one-voice"><dt>{% translate "Voices" %}</dt><dd title="{% translate 'A loop that hears only itself drifts. Invite someone, or open it to visitors.' %}">{% translate "only one so far" %}</dd></div>{% endif %}
+      <div><dt>{% translate "Created by" %}</dt><dd>{{ item.created_by.name|default:"—" }} <span class="meta">{{ item.created_at|date:"j M Y" }}</span></dd></div>
+      <div><dt>{% translate "Assigned" %}</dt><dd>{% for p in item.assignees.all %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
+      <div><dt>{% translate "Deadline" %}</dt><dd class="{% if item.is_overdue %}overdue{% endif %}">{{ item.deadline|date:"j M Y"|default:"—" }}</dd></div>
+      {% for field in fields %}
+      <div><dt>{{ field.name }}</dt><dd>{% for o in item|options_for:field %}<span class="tag c-{{ o.color }}">{{ o.label }}</span>{% empty %}—{% endfor %}</dd></div>
+      {% endfor %}
+      {% if item.depends_on.all %}
+      <div><dt>{% translate "Waits for" %}</dt><dd>{% for d in item.depends_on.all %}<a href="{% item_url d %}" class="{% if d.is_done %}done-ref{% endif %}">#{{ d.number }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</dd></div>
+      {% endif %}
+      {% if blocks %}
+      <div><dt>{% translate "Holds up" %}</dt><dd>{% for b in blocks %}<a href="{% item_url b %}">#{{ b.number }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</dd></div>
+      {% endif %}
+    </dl>
   </header>
 
-  <div class="sheet">
-    <div class="main">
+  <nav class="doc-nav" aria-label="{% translate 'Documents' %}">
+    {% for cycle, docs in loops %}
+    <p{% if forloop.revcounter > 2 %} class="older"{% endif %}>
+      <span class="meta">{% blocktranslate with n=cycle %}Loop {{ n }}{% endblocktranslate %}</span>
+      {% for d in docs %}
+      <a href="{% document_url d %}" class="p-{{ d.phase }}{% if d.pk == doc.pk %} here{% endif %}" {% if d.pk == doc.pk %}aria-current="page"{% endif %}>{{ d.get_phase_display }}</a>
+      {% endfor %}
+    </p>
+    {% endfor %}
+  </nav>
 
-      {% if item.body %}
-      <div class="prose" data-commentable="body">{{ item.body|rich:base }}</div>
-      {% elif not public %}
-      <p class="empty small">{% translate "No description yet." %}</p>
-      {% endif %}
+  {% if not is_current %}
+  <p class="old-doc">
+    {% blocktranslate with phase=doc.get_phase_display n=doc.cycle %}You are reading the {{ phase }} document from loop {{ n }}. It is kept as it was.{% endblocktranslate %}
+    <a href="{% if public %}{% url 'public_item' token item.number %}{% else %}{{ item.get_absolute_url }}{% endif %}">{% translate "Go to the current document" %} →</a>
+  </p>
+  {% endif %}
 
-      {% if not public %}
-      <details class="edit"{% if form.errors %} open{% endif %}>
-        <summary>{% translate "Edit details" %}</summary>
-        <form method="post" action="{% url 'board:edit' item.number %}" class="stack">
-          {% csrf_token %}
-          {% include "board/_item_fields.html" %}
-          <div class="row"><button class="primary">{% translate "Save" %}</button></div>
-        </form>
-      </details>
-      {% endif %}
+  <p class="guide">
+    <span class="phase p-{{ doc.phase }}">{{ doc.get_phase_display }}</span>
+    <span class="doc-status s-{{ doc.status }}">{{ doc.get_status_display }}{% if doc.status == "review" and doc.submitted_by %} · {% blocktranslate with who=doc.submitted_by.name %}asked by {{ who }}{% endblocktranslate %}{% endif %}</span>
+    {% if next_note and is_current %}<span class="doc-status">· {{ next_note }}</span>{% endif %}
+    {% if guide %}<span class="guide-text">{{ guide }}</span>{% endif %}
+  </p>
 
-      <section id="entries" class="log">
-        <h2>{% translate "Log" %}</h2>
-        {% for cycle, entries in loops %}
-        <div class="loop">
-          <h3>{% blocktranslate with n=cycle %}Loop {{ n }}{% endblocktranslate %}</h3>
-          {% for entry in entries %}
-          <div class="entry k-{{ entry.kind }}" id="entry-{{ entry.pk }}">
-            <p class="entry-kind">{{ entry.get_kind_display }}</p>
-            <div class="entry-body" data-commentable="entry-{{ entry.pk }}">{{ entry.body|rich:base }}</div>
-            <p class="meta">
-              {{ entry.author.name|default:_("someone") }} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"j M, H:i" }}</time>
-              {% if not public and entry.author_id == user.pk %}
-              <form method="post" action="{% url 'board:delete_entry' entry.pk %}" class="inline" data-confirm="{% translate 'Delete this note?' %}">{% csrf_token %}<button class="link">{% translate "delete" %}</button></form>
-              {% endif %}
-            </p>
-          </div>
-          {% endfor %}
-        </div>
-        {% empty %}
-        <p class="empty small">{% translate "Nothing written down yet. What do you see?" %}</p>
-        {% endfor %}
+  {% if reoriented %}
+  <p class="reoriented">
+    ↺ {% blocktranslate with who=reoriented.moved_by.name|default:_("someone") when=reoriented.started_at|date:"j M" %}Re-oriented by {{ who }} on {{ when }}:{% endblocktranslate %}
+    <em>{{ reoriented.reason|truncatechars:240 }}</em>
+  </p>
+  {% endif %}
 
-        {% if not public %}
-        <form method="post" action="{% url 'board:entry' item.number %}" class="write">
-          {% csrf_token %}
-          <div class="kinds">{% for radio in entry_form.kind %}{{ radio.tag }}<label for="{{ radio.id_for_label }}">{{ radio.choice_label }}</label>{% endfor %}</div>
-          {{ entry_form.body }}
-          <div class="row">
-            <button class="primary">{% translate "Write it down" %}</button>
-            {% if not item.is_done %}
-            <label class="check"><input type="checkbox" name="advance" value="1"> {% translate "and move to the next phase" %}</label>
-            {% endif %}
-          </div>
-        </form>
+  {% if pending and is_current and not public %}
+  <section id="observations" class="observations has-pending">
+    <h2>{% blocktranslate count n=pending|length %}{{ n }} new observation{% plural %}{{ n }} new observations{% endblocktranslate %}
+      <span class="meta">— {% translate "does the picture still hold?" %}</span></h2>
+    <ul class="plain">
+      {% for e in pending %}
+      <li class="pending-obs">
+        <div class="obs-body">{{ e.body|rich }}</div>
+        <p class="meta">{% if e.signal != "seen" %}<span class="signal s-{{ e.signal }}">{{ e.get_signal_display }}</span>{% endif %}{% if e.from_outside %}<span class="signal s-outside">{% translate "From outside" %}</span>{% endif %}{% if e.kind != "observation" %}{{ e.get_kind_display }} · {% endif %}{{ e.author.name|default:e.outside_name|default:_("someone") }} · {{ e.created_at|date:"j M, H:i" }}
+        {% if can_change %}
+          {% if item.phase == "decide" or item.phase == "act" %}
+          <form method="post" action="{% url 'board:reorient' item.number %}" class="inline">{% csrf_token %}
+            <input type="hidden" name="observation" value="{{ e.pk }}">
+            <button class="small">{% translate "Re-orient on this" %} ↺</button>
+          </form>
+          {% else %}
+          <form method="post" action="{% url 'board:observation_noted' e.pk %}" class="inline">{% csrf_token %}
+            <button class="small" name="action" value="add">{% translate "Add to the document" %}</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{% url 'board:observation_noted' e.pk %}" class="inline">{% csrf_token %}
+            <button class="link" name="action" value="noted">{% translate "noted, the picture holds" %}</button>
+          </form>
         {% endif %}
-      </section>
+        </p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
 
-      {% if children %}
-      <section class="related">
-        <h2>{% translate "Sub-items" %}</h2>
-        <ul class="plain">
-          {% for c in children %}<li class="{% if c.is_done %}done{% endif %}"><a href="{% item_url c %}">#{{ c.number }} {{ c.title }}</a> <span class="phase p-{{ c.phase }}">{{ c.get_phase_display }}</span></li>{% endfor %}
-        </ul>
-      </section>
-      {% endif %}
+  {% if outcomes %}
+  <section id="outcomes" class="outcomes">
+    <h2>{% translate "Outcomes: experiments, risks and opportunities" %}</h2>
+    <ul class="plain">
+      {% for o in outcomes %}
+      <li class="outcome k-{{ o.kind }}{% if o.verdict %} v-{{ o.verdict.outcome }}{% endif %}">
+        <div class="outcome-text"><strong>{{ o.name }}</strong>{% if o.hypothesis %} — {{ o.hypothesis }}{% endif %}
+          {% if o.signal %}<div class="meta">{% translate "Early signal:" %} {{ o.signal }}</div>{% endif %}</div>
+        {% if can_change and is_current %}
+        <form method="post" action="{% url 'board:verdict' item.number %}" class="verdicts">{% csrf_token %}
+          <input type="hidden" name="experiment" value="{{ o.name }}">
+          {% for key, label in o.choices %}
+          <button name="outcome" value="{% if o.verdict.outcome == key %}{% else %}{{ key }}{% endif %}" class="small v-{{ key }}" aria-pressed="{% if o.verdict.outcome == key %}true{% else %}false{% endif %}">{{ label }}</button>
+          {% endfor %}
+        </form>
+        {% else %}
+        <span class="verdict-label">{% if o.verdict %}{% for key, label in o.choices %}{% if key == o.verdict.outcome %}{{ label }}{% endif %}{% endfor %}{% else %}{% translate "not decided" %}{% endif %}</span>
+        {% endif %}
+        {% if o.verdict.outcome == "failed" and o.then %}
+        <p class="then">{% if o.kind != "experiment" %}{% translate "Decided in advance — if we see it, we will:" %}{% else %}{% translate "Decided in advance — if it fails, we will:" %}{% endif %} <strong>{{ o.then }}</strong></p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
 
-      {% if merged %}
-      <p class="meta">{% translate "Merged into this:" %} {% for m in merged %}#{{ m.number }} {{ m.title }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
-      {% endif %}
+  <div class="context">
+    {% if input_doc %}
+    <details class="chip input-doc"{% if is_current and not doc.body|has_content %} open{% endif %}>
+      <summary>{% blocktranslate with phase=input_doc.get_phase_display n=input_doc.cycle %}Input: {{ phase }}, loop {{ n }}{% endblocktranslate %}</summary>
+      <div class="doc input-body">{{ input_doc.body|tidy }}</div>
+      <p class="meta"><a href="{% document_url input_doc %}">{% translate "Open it with its comments" %}</a></p>
+    </details>
+    {% endif %}
+
+    {% if intent %}
+    <details class="chip intent">
+      <summary>{% blocktranslate with n=intent.item.number %}Intent from #{{ n }}{% endblocktranslate %}</summary>
+      <p class="meta">{{ intent.item.title }}</p>
+      {% if intent.html %}<div class="doc input-body">{{ intent.html|safe }}</div>
+      {% elif intent.doc %}<div class="doc input-body">{{ intent.doc.body|tidy }}</div>
+      {% else %}<p class="meta">{% translate "It hasn't set out what it is testing yet." %}</p>{% endif %}
+      <p class="meta">{% translate "This item runs a faster loop inside it. Its results are reported up as observations when a loop is finished." %}
+        <a href="{% item_url intent.item %}">{% translate "Open it" %}</a></p>
+    </details>
+    {% endif %}
+
+    {% if kept_readings %}
+    <details class="chip kept-readings">
+      <summary>{% blocktranslate count n=kept_readings|length %}{{ n }} other reading kept{% plural %}{{ n }} other readings kept{% endblocktranslate %}</summary>
+      <ul class="plain">
+        {% for r in kept_readings %}
+        <li><blockquote>{{ r.quote|truncatechars:160 }}</blockquote>{{ r.body|rich }} <span class="meta">— {{ r.author.name|default:_("someone") }}{% if r.author.is_agent %} <span class="ai">AI</span>{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    {% if lenses and is_current %}
+    <details class="chip lenses">
+      <summary>{% translate "Try another lens" %}</summary>
+      <ul class="plain">
+        {% for lens in lenses %}
+        <li><strong>{{ lens.name }}</strong>{% if lens.source %} <span class="meta">{{ lens.source }}</span>{% endif %}
+          <div>{{ lens.question }}</div>
+          {% if can_edit %}<form method="post" action="{% url 'board:use_lens' item.number lens.pk %}" class="inline">{% csrf_token %}<button class="link">{% translate "add the question to the document" %}</button></form>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="meta"><a href="{% url 'board:library' %}">{% translate "The whole library" %} →</a></p>
+    </details>
+    {% endif %}
+
+    {% if is_current and not public and not item.is_done %}
+    <details class="chip observe-chip" id="observe">
+      <summary>+ {% translate "Note an observation" %}</summary>
+      <form method="post" action="{% url 'board:observe_now' item.number %}" class="observe-now">{% csrf_token %}
+        <input name="body" required autocomplete="off" aria-label="{% translate 'New observation' %}"
+          placeholder="{% translate 'Noticed something? Whatever phase this is in…' %}">
+        <span class="signals" role="radiogroup" aria-label="{% translate 'How do we know?' %}">
+          <label><input type="radio" name="signal" value="seen" checked> {% translate "Seen" %}</label>
+          <label><input type="radio" name="signal" value="measured"> {% translate "Measured" %}</label>
+          <label title="{% translate 'A feeling before it has words: unease, gut feeling. It can stay without words for now.' %}"><input type="radio" name="signal" value="felt"> {% translate "Felt" %}</label>
+        </span>
+        <button>{% translate "Note" %}</button>
+      </form>
+    </details>
+    {% endif %}
+
+    {% if ai_share %}
+    <p class="chip-note">{% blocktranslate count n=ai_share %}{{ n }} accepted change here came from an AI suggestion.{% plural %}{{ n }} accepted changes here came from AI suggestions.{% endblocktranslate %} {% translate "Has someone put it in their own words?" %}</p>
+    {% endif %}
+  </div>
+
+
+  {% if can_edit %}
+  <div class="toolbar" role="toolbar" aria-label="{% translate 'Formatting' %}">
+    <button type="button" data-block="p" title="{% translate 'Text' %}">¶</button>
+    <button type="button" data-block="h2" title="{% translate 'Heading' %}">H</button>
+    <button type="button" data-block="h3" title="{% translate 'Subheading' %}">h</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="bold" title="{% translate 'Bold' %}"><b>B</b></button>
+    <button type="button" data-cmd="italic" title="{% translate 'Italic' %}"><i>I</i></button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="insertUnorderedList" title="{% translate 'List' %}">•</button>
+    <button type="button" data-cmd="insertOrderedList" title="{% translate 'Numbered list' %}">1.</button>
+    <button type="button" data-block="blockquote" title="{% translate 'Quote' %}">“</button>
+    <button type="button" data-link title="{% translate 'Link' %}" data-prompt="{% translate 'Address' %}">↗</button>
+    <span class="sep"></span>
+    <button type="button" data-clear-questions class="journal-btn" title="{% translate 'The questions are an offer, not a form. Remove the ones nobody has answered.' %}">{% translate "Clear unused questions" %}</button>
+    {% if doc.phase == "act" %}
+    <span class="sep"></span>
+    <button type="button" data-journal data-who="{{ user.name }}" title="{% translate 'New journal entry with date and time' %}" class="journal-btn">{% translate "+ Entry" %}</button>
+    {% endif %}
+    <span class="save-state meta" aria-live="polite"
+      data-saving="{% translate 'Saving…' %}" data-saved="{% translate 'Saved' %}"
+      data-conflict="{% translate 'Someone else changed this document. Reload to see their version — your last changes were not saved.' %}"
+      data-failed="{% translate 'Could not save. Check your connection.' %}"></span>
+  </div>
+  {% elif can_comment and not public %}
+  <p class="toolbar hint meta">{% translate "Select text to comment or suggest a change. Owners and the people assigned edit the document directly." %}</p>
+  {% endif %}
+
+  <div class="docwrap">
+    <div class="page">
+      <h1 class="doc-title" {% if can_edit %}contenteditable="plaintext-only" spellcheck="true" data-title{% endif %}>{{ item.title }}</h1>
+      <div class="doc" id="doc" {% if can_edit %}contenteditable="true" spellcheck="true"{% endif %}
+        data-placeholder="{% if can_edit %}{% translate 'Write here — background, what we see, what done looks like…' %}{% endif %}">{% if is_current %}{{ doc.body|safe }}{% else %}{{ doc.body|tidy }}{% endif %}</div>
     </div>
 
-    <aside class="margin">
-      <dl class="facts">
-        <dt>{% translate "Assigned" %}</dt>
-        <dd>{% for p in item.assignees.all %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="meta">{% translate "nobody" %}</span>{% endfor %}</dd>
-        <dt>{% translate "Deadline" %}</dt>
-        <dd class="{% if item.is_overdue %}overdue{% endif %}">{{ item.deadline|date:"j F Y"|default:"—" }}</dd>
-        {% for field in fields %}
-        <dt>{{ field.name }}</dt>
-        <dd>{% for o in item|options_for:field %}<span class="tag c-{{ o.color }}">{{ o.label }}</span>{% empty %}—{% endfor %}</dd>
-        {% endfor %}
+    <aside class="margin-col" aria-label="{% translate 'Comments and suggestions' %}">
+      {% if threads or closed_threads %}
+      <div class="thread-filter" role="group" aria-label="{% translate 'Show' %}">
+        <button type="button" data-filter="all">{% translate "All" %} <span class="n">{{ thread_total }}</span></button>
+        <button type="button" data-filter="open" aria-pressed="true">{% translate "Open" %} <span class="n">{{ threads|length }}</span></button>
+        <button type="button" data-filter="closed">{% translate "Resolved" %} <span class="n">{{ closed_threads|length }}</span></button>
+      </div>
+      {% endif %}
+      <div class="threads" id="threads">
+        {% for c in threads %}{% include "board/_thread.html" %}{% endfor %}
+        {% for c in closed_threads %}{% include "board/_thread.html" %}{% endfor %}
+      </div>
+    </aside>
+  </div>
 
-        <dt>{% translate "Waits for" %}</dt>
-        <dd>
+  <section class="below">
+
+    {% if children %}
+    <h2>{% translate "Sub-items" %}</h2>
+    <ul class="plain related">
+      {% for c in children %}<li class="{% if c.is_done %}done{% endif %}"><a href="{% item_url c %}">#{{ c.number }} {{ c.title }}</a> <span class="phase p-{{ c.phase }}">{{ c.get_phase_display }}</span></li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if item.links.all or can_change %}
+    <h2>{% translate "Links" %}</h2>
+    <ul class="plain related">
+      {% for link in item.links.all %}
+      <li><a href="{{ link.url }}" target="_blank" rel="noopener">{{ link }}</a>
+        {% if can_change %}<form method="post" action="{% url 'board:delete_link' link.pk %}" class="inline">{% csrf_token %}<button class="link" aria-label="{% translate 'remove' %}">×</button></form>{% endif %}
+      </li>
+      {% empty %}<li class="meta">{% translate "none" %}</li>
+      {% endfor %}
+    </ul>
+    {% if can_change %}
+    <form method="post" action="{% url 'board:link' item.number %}" class="row link-form">{% csrf_token %}
+      {{ link_form.url }}{{ link_form.label }}<button>{% translate "Add link" %}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+
+    {% if can_change %}
+    <details class="edit">
+      <summary>{% translate "Details: assigned, deadline, priority, fields" %}</summary>
+      <form method="post" action="{% url 'board:edit' item.number %}" class="stack">
+        {% csrf_token %}
+        {% include "board/_item_fields.html" %}
+        <div class="row"><button class="primary">{% translate "Save" %}</button></div>
+      </form>
+    </details>
+
+    <details class="edit">
+      <summary>{% translate "Dependencies and merging" %}</summary>
+      <div class="stack">
+        <div>
+          <p class="meta">{% translate "Waits for — this can't start before these are done:" %}</p>
           <ul class="plain">
-          {% for d in item.depends_on.all %}
+            {% for d in item.depends_on.all %}
             <li class="{% if d.is_done %}done{% endif %}"><a href="{% item_url d %}">#{{ d.number }} {{ d.title }}</a>
-              {% if not public %}<form method="post" action="{% url 'board:undepend' item.number d.number %}" class="inline">{% csrf_token %}<button class="link" aria-label="{% translate 'remove' %}">×</button></form>{% endif %}
+              <form method="post" action="{% url 'board:undepend' item.number d.number %}" class="inline">{% csrf_token %}<button class="link" aria-label="{% translate 'remove' %}">×</button></form>
             </li>
-          {% empty %}<li class="meta">{% translate "nothing" %}</li>{% endfor %}
+            {% endfor %}
           </ul>
-          {% if not public %}
           <form method="post" action="{% url 'board:depend' item.number %}" class="tiny">{% csrf_token %}
             <input name="other" list="candidates" placeholder="#" aria-label="{% translate 'Item number' %}" required><button>{% translate "add" %}</button>
           </form>
-          {% endif %}
-        </dd>
-        {% if blocks %}
-        <dt>{% translate "Holds up" %}</dt>
-        <dd><ul class="plain">{% for b in blocks %}<li><a href="{% item_url b %}">#{{ b.number }} {{ b.title }}</a></li>{% endfor %}</ul></dd>
-        {% endif %}
-
-        <dt>{% translate "Links" %}</dt>
-        <dd>
-          <ul class="plain">
-          {% for link in item.links.all %}
-            <li><a href="{{ link.url }}" target="_blank" rel="noopener">{{ link }}</a>
-              {% if not public %}<form method="post" action="{% url 'board:delete_link' link.pk %}" class="inline">{% csrf_token %}<button class="link" aria-label="{% translate 'remove' %}">×</button></form>{% endif %}
-            </li>
-          {% empty %}<li class="meta">{% translate "none" %}</li>{% endfor %}
-          </ul>
-          {% if not public %}
-          <details class="tiny"><summary>{% translate "add link" %}</summary>
-            <form method="post" action="{% url 'board:link' item.number %}" class="stack">{% csrf_token %}
-              {{ link_form.url }}{{ link_form.label }}<button>{% translate "Add" %}</button>
-            </form>
-          </details>
-          {% endif %}
-        </dd>
-      </dl>
-
-      {% if not public and not item.is_done %}
-      <details class="tiny merge"><summary>{% translate "Merge into another item" %}</summary>
-        <form method="post" action="{% url 'board:merge' item.number %}" data-confirm="{% translate 'Merge this item into the other one? Its notes, links and comments move along.' %}">{% csrf_token %}
-          <input name="into" list="candidates" placeholder="#" aria-label="{% translate 'Item number' %}" required><button>{% translate "merge" %}</button>
-        </form>
-      </details>
-      <datalist id="candidates">{% for c in candidates %}<option value="{{ c.number }}">#{{ c.number }} {{ c.title }}</option>{% endfor %}</datalist>
-      {% endif %}
-
-      <section id="comments" class="comments">
-        <h2>{% translate "Comments" %}</h2>
-        {% if not public %}<p class="meta hint">{% translate "Select text in the description or log to comment on it." %}</p>{% endif %}
-        {% for c in comments %}
-        <div class="comment{% if c.resolved %} resolved{% endif %}" data-comment="{{ c.pk }}" data-target="{{ c.target }}" data-quote="{{ c.quote }}">
-          {% if c.quote %}<blockquote>{{ c.quote|truncatechars:160 }}</blockquote>{% endif %}
-          <div class="comment-body">{{ c.body|rich:base }}</div>
-          <p class="meta">
-            {{ c.author.name|default:_("someone") }} · {{ c.created_at|date:"j M" }}
-            {% if not public %}
-            <form method="post" action="{% url 'board:resolve' c.pk %}" class="inline">{% csrf_token %}<button class="link">{% if c.resolved %}{% translate "reopen" %}{% else %}{% translate "resolve" %}{% endif %}</button></form>
-            {% endif %}
-          </p>
         </div>
-        {% empty %}
-        <p class="meta">{% translate "No comments." %}</p>
-        {% endfor %}
-
-        {% if not public %}
-        <form method="post" action="{% url 'board:comment' item.number %}" class="comment-form" id="comment-form">
-          {% csrf_token %}
-          <input type="hidden" name="target" value="body">
-          <input type="hidden" name="quote" value="">
-          <blockquote class="quote-preview" hidden></blockquote>
-          <textarea name="body" rows="2" placeholder="{% translate 'Comment… use @name to mention someone' %}" required></textarea>
-          <div class="row"><button>{% translate "Comment" %}</button><button type="button" class="link cancel-quote" hidden>{% translate "cancel" %}</button></div>
-        </form>
+        {% if not item.is_done %}
+        <div>
+          <p class="meta">{% translate "Merge into another item — the document is added to the end of the other one, and comments move along:" %}</p>
+          <form method="post" action="{% url 'board:merge' item.number %}" class="tiny" data-confirm="{% translate 'Merge this item into the other one?' %}">{% csrf_token %}
+            <input name="into" list="candidates" placeholder="#" aria-label="{% translate 'Item number' %}" required><button>{% translate "merge" %}</button>
+          </form>
+        </div>
         {% endif %}
-      </section>
-    </aside>
-  </div>
+      </div>
+      <datalist id="candidates">{% for c in candidates %}<option value="{{ c.number }}">#{{ c.number }} {{ c.title }}</option>{% endfor %}</datalist>
+    </details>
+    {% endif %}
+
+    {% if merged %}
+    <p class="meta">{% translate "Merged into this:" %} {% for m in merged %}#{{ m.number }} {{ m.title }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+  </section>
 </article>
 
-{% if not public %}<button type="button" class="comment-pop" hidden>❝ {% translate "Comment" %}</button>{% endif %}
+{% if can_comment and not public %}
+<div class="selection-pop" hidden>
+  <button type="button" data-start="comment">{% translate "Comment" %}</button>
+  <button type="button" data-start="suggestion">{% translate "Suggest a change" %}</button>
+  <button type="button" data-start="reading" title="{% translate 'Another way of seeing this passage. It stays beside the document and goes along as input to the next phase.' %}">{% translate "Another reading" %}</button>
+</div>
+<button type="button" class="para-comment" hidden title="{% translate 'Comment on this paragraph' %}" aria-label="{% translate 'Comment on this paragraph' %}">+</button>
+
+<template id="composer">
+  <form method="post" action="{% url 'board:comment' item.number %}" class="thread composer">
+    {% csrf_token %}
+    <input type="hidden" name="kind">
+    <input type="hidden" name="quote">
+    <input type="hidden" name="prefix">
+    <p class="thread-head meta">{{ user.name }}</p>
+    <div class="for-suggestion">
+      <p class="change"><del class="quote-preview"></del></p>
+      <label class="meta">{% translate "Replace with" %}<textarea name="replacement" rows="2"></textarea></label>
+    </div>
+    <textarea name="body" rows="2" data-comment-placeholder="{% translate 'Comment… use @name to mention someone' %}" data-reading-placeholder="{% translate 'How else could this be read? It stays beside the document, it isn\'t resolved away.' %}" data-suggestion-placeholder="{% translate 'Why? (optional)' %}"></textarea>
+    <div class="row"><button class="primary">{% translate "Send" %}</button><button type="button" class="link" data-cancel>{% translate "cancel" %}</button></div>
+  </form>
+</template>
+{% endif %}
+
+<script src="{% static 'doc.js' %}" defer></script>
 {% endblock %}

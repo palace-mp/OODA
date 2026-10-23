@@ -35,6 +35,12 @@ class User(AbstractUser):
     last_name = None
     email = models.EmailField(_("e-mail"), unique=True)
     name = models.CharField(_("name"), max_length=80)
+    is_agent = models.BooleanField(_("AI agent"), default=False)
+    # For agents: the angle it reviews from, see board/agent.py LENSES.
+    agent_lens = models.CharField(_("lens"), max_length=20, blank=True)
+    # Relaxed alertness: one e-mail a day with everything, instead of one per event.
+    email_digest = models.BooleanField(_("one e-mail a day instead of one per event"), default=False)
+    last_digest_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
@@ -56,6 +62,8 @@ class Workspace(models.Model):
     name = models.CharField(_("name"), max_length=80)
     is_public = models.BooleanField(_("published"), default=False)
     public_token = models.CharField(max_length=64, default=make_token, unique=True)
+    # Visitors to the published board may send observations. Open systems stay alive.
+    open_to_observations = models.BooleanField(_("visitors can send observations"), default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

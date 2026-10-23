@@ -91,6 +91,11 @@ DATABASES = {
     }
 }
 
+# Own cookie names, so OODA never logs you out of another app on the same host.
+SESSION_COOKIE_NAME = "ooda_session"
+CSRF_COOKIE_NAME = "ooda_csrftoken"
+LANGUAGE_COOKIE_NAME = "ooda_language"
+
 AUTH_USER_MODEL = "accounts.User"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "board:index"

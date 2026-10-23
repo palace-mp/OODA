@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load i18n ooda %}
+{% block title %}{% blocktranslate with t=item.title %}The story of {{ t }}{% endblocktranslate %}{% endblock %}
+{% block content %}
+<div class="narrow story">
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <ol>
+      <li><a href="{% if public %}{% url 'public_index' token %}{% else %}{% url 'board:index' %}{% endif %}">{% if public %}{{ workspace.name }}{% else %}{% translate "Board" %}{% endif %}</a></li>
+      <li><a href="{% item_url item %}">#{{ item.number }} {{ item.title|truncatechars:60 }}</a></li>
+      <li aria-current="page">{% translate "Story" %}</li>
+    </ol>
+  </nav>
+  <h1>{{ item.title }}</h1>
+  <p class="lede">{% translate "The story so far, loop by loop: what we saw, what we believed, what we tried and what happened. Nobody writes it; it is told by the work itself, and it never quite ends." %}</p>
+
+  {% for e in episodes %}
+  <section class="episode{% if e.current %} current{% endif %}">
+    <h2>{% blocktranslate with n=e.cycle %}Loop {{ n }}{% endblocktranslate %} <span class="meta">{{ e.start|date:"j M Y" }}{% if e.current %} · {% translate "still unfolding" %}{% endif %}</span></h2>
+    {% if e.saw %}<p><span class="beat p-observe">{% translate "We saw" %}</span> {% for line in e.saw %}{{ line }} {% endfor %}</p>{% endif %}
+    {% if e.believed %}<p><span class="beat p-orient">{% translate "We believed" %}</span> {% for line in e.believed %}{{ line }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% for r in e.readings %}<p class="aside-reading"><span class="beat">{% translate "Someone read it differently" %}</span> {{ r.body }} <span class="meta">— {{ r.author.name|default:_("someone") }}</span></p>{% endfor %}
+    {% if e.tried %}<p><span class="beat p-decide">{% translate "We tried" %}</span> {% for t in e.tried %}{{ t }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% if e.happened %}<p><span class="beat p-act">{% translate "What happened" %}</span> {% for line in e.happened %}{{ line }} {% endfor %}</p>{% endif %}
+    {% if e.verdicts %}<p class="meta">{% for v in e.verdicts %}{{ v.experiment }}: <span class="hstatus h-{{ v.outcome }}">{{ v.get_outcome_display }}</span>{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% for r in e.reorients %}<p class="reoriented">↺ {% blocktranslate with when=r.started_at|date:"j M" %}On {{ when }} we changed our minds:{% endblocktranslate %} <em>{{ r.reason|truncatechars:240 }}</em></p>{% endfor %}
+  </section>
+  {% empty %}
+  <p class="empty">{% translate "Nothing to tell yet." %}</p>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -18,7 +18,7 @@
     <table class="items compact">
       {% for m in memberships %}
       <tr>
-        <td>{{ m.user.name }} <span class="meta">{{ m.user.email }}</span></td>
+        <td>{{ m.user.name }}{% if m.user.is_agent %} <span class="ai">AI</span> <span class="meta">{{ m.user.agent_lens|default:"data" }}</span>{% else %} <span class="meta">{{ m.user.email }}</span>{% endif %}</td>
         <td class="meta">{{ m.get_role_display }}</td>
         <td class="right">
           {% if is_owner and m.user != user %}
@@ -106,6 +106,7 @@
     <h2>{% translate "Public page" %}</h2>
     {% if workspace.is_public %}
       <p>{% translate "The board is published. Anyone with this address can read everything on it:" %}</p>
+      {% if workspace.open_to_observations %}<p class="meta">{% translate "Visitors can also send observations. They land on the item, marked as from outside, and wait like any other. Open systems stay alive." %}</p>{% endif %}
       <p><input readonly value="{{ public_url }}" data-copy aria-label="{% translate 'Public address' %}"> <a href="{{ public_url }}" target="_blank">{% translate "open" %}</a></p>
     {% else %}
       <p class="meta">{% translate "Publish a read-only copy of the board at a secret address you can share." %}</p>
@@ -115,6 +116,11 @@
       {% if workspace.is_public %}
         <button name="action" value="unpublish">{% translate "Unpublish" %}</button>
         <button class="link" name="action" value="new-link" data-confirm="{% translate 'The old address stops working. Continue?' %}">{% translate "new address" %}</button>
+        {% if workspace.open_to_observations %}
+        <button class="link" name="action" value="close">{% translate "stop taking observations from visitors" %}</button>
+        {% else %}
+        <button class="link" name="action" value="open">{% translate "let visitors send observations" %}</button>
+        {% endif %}
       {% else %}
         <button name="action" value="publish">{% translate "Publish" %}</button>
       {% endif %}
