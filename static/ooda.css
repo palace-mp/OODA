@@ -526,6 +526,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .figure .label { margin: 0.5rem 0 0.2rem; color: var(--ink-2); }
 .figure .meta { margin: 0; }
 .figures + h2 { margin-top: 2.6rem; }
+.handled { margin-top: 2.2rem; border-left: 3px solid var(--act); padding: 0.1rem 0 0.2rem 1rem; }
+.handled h2 { margin: 0 0 0.5rem; color: var(--act); }
+.handled li { padding: 0.2rem 0; }
 .reorient-list li { padding: 0.4rem 0; border-bottom: 1px solid var(--rule); }
 table.phases th { text-align: left; width: 7rem; padding: 0.55rem 0; font-weight: normal; }
 table.phases td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--rule); }

@@ -1073,3 +1073,17 @@ class DigestTests(Base):
         self.client.post(reverse("board:observe_now", args=[it.number]), {"body": "Three"})
         self.assertEqual(send_digests(), 0)  # not again the same day
         self.assertEqual(send_digests(timezone.now() + timedelta(days=1)), 1)
+
+
+class TempoTrustTests(Base):
+    def test_tempo_shows_what_was_handled_and_far_from_typical_loops(self):
+        it = self.item("Pricing")
+        for _ in range(3):
+            it.advance(self.anna)
+        Verdict.objects.create(item=it, cycle=1, experiment="Experiment 1", outcome="failed")
+        Verdict.objects.create(item=it, cycle=1, experiment="Risk 1", outcome="failed")
+        it.reorient(self.anna, "The paper was damp")
+        r = self.client.get(reverse("board:tempo"))
+        self.assertEqual(r.context["handled_total"], 3)
+        self.assertEqual(r.context["tested"]["failed"], 1)  # risks are not tested assumptions
+        self.assertContains(r, "You have handled the unexpected before")

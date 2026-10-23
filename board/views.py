@@ -956,9 +956,30 @@ def tempo(request):
     taken_now, taken_prev = taken_in(since, now), taken_in(before, since)
     reorients = [s for s in all_spans if s.reason and s.started_at >= since]
     reorients_prev = sum(1 for s in all_spans if s.reason and before <= s.started_at < since)
-    verdicts = list(Verdict.objects.filter(item__workspace=workspace, decided_at__gte=before))
+    experiment_word = _("Experiment")
+    verdicts = [v for v in Verdict.objects.filter(item__workspace=workspace, decided_at__gte=before)
+                if v.experiment.startswith(experiment_word)]
     tested = {key: sum(1 for v in verdicts if v.outcome == key and v.decided_at >= since) for key, _l in Verdict.OUTCOMES}
     tested_prev = sum(1 for v in verdicts if v.decided_at < since)
+
+    # Medians hide the loops that matter most. Show the ones far from the typical.
+    typical = median([d for _e, d in loops_by_end]) if loops_by_end else None
+    outliers = []
+    if typical:
+        ends = {}
+        for (item_id, cycle), start in starts.items():
+            end = starts.get((item_id, cycle + 1))
+            if end and (end - start >= typical * 3 or end - start <= typical / 3):
+                ends[(item_id, cycle)] = end - start
+        items_by_pk = {i.pk: i for i in Item.objects.filter(pk__in=[k[0] for k in ends])}
+        outliers = sorted(({"item": items_by_pk[k[0]], "cycle": k[1], "took": d, "longer": d > typical}
+                           for k, d in ends.items()), key=lambda r: -abs((r["took"] - typical).total_seconds()))[:6]
+
+    # Trust grows from having handled things: what went against us, and what we did then.
+    handled = list(Verdict.objects.filter(item__workspace=workspace, outcome=Verdict.FAILED)
+                   .select_related("item").order_by("-decided_at")[:5])
+    handled_total = Verdict.objects.filter(item__workspace=workspace, outcome=Verdict.FAILED).count() + sum(
+        1 for s in all_spans if s.reason)
 
     # Where the picture may be out of date: observations nobody has taken in.
     waiting = {}
@@ -990,6 +1011,10 @@ def tempo(request):
         "tested_previous": tested_prev,
         "stale": stale,
         "level_rows": level_rows,
+        "typical": typical,
+        "outliers": outliers,
+        "handled": handled,
+        "handled_total": handled_total,
     })
 
 

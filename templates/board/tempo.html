@@ -39,6 +39,15 @@
     </div>
   </div>
 
+  {% if handled_total %}
+  <section class="handled">
+    <h2>{% translate "You have handled the unexpected before" %}</h2>
+    <p>{% blocktranslate count n=handled_total %}{{ n }} time something went against the plan — a failed assumption, a risk that happened, a change of mind — and the board carried on.{% plural %}{{ n }} times something went against the plan — a failed assumption, a risk that happened, a change of mind — and the board carried on.{% endblocktranslate %}
+      <span class="meta">{% translate "That is the experience a yes can rest on." %}</span></p>
+    {% if handled %}<ul class="plain">{% for v in handled %}<li><a href="{{ v.item.get_absolute_url }}">#{{ v.item.number }} {{ v.item.title }}</a> <span class="meta">{{ v.experiment }}, {% blocktranslate with n=v.cycle %}loop {{ n }}{% endblocktranslate %} · {{ v.decided_at|date:"j M" }}</span></li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
   {% if stale %}
   <h2>{% translate "The picture may be out of date" %}</h2>
   <p class="meta">{% translate "Items with observations nobody has taken in yet, oldest first." %}</p>
@@ -79,6 +88,21 @@
       <p class="meta">{% blocktranslate with n=loops_closed_previous %}{{ n }} the period before{% endblocktranslate %}</p>
     </div>
   </div>
+
+  {% if outliers %}
+  <h2>{% translate "Far from typical" %}</h2>
+  <p class="meta">{% blocktranslate with t=typical|span %}A typical loop takes {{ t }}. These took three times as long, or a third of the time. Medians hide them, and they are often where the learning is.{% endblocktranslate %}</p>
+  <table class="items compact">
+    {% for r in outliers %}
+    <tr>
+      <td class="num">{{ r.item.number }}</td>
+      <td class="title"><a href="{{ r.item.get_absolute_url }}">{{ r.item.title }}</a> <span class="meta">{% blocktranslate with n=r.cycle %}loop {{ n }}{% endblocktranslate %}</span></td>
+      <td class="meta nowrap">{% if r.longer %}{% translate "slow" %}{% else %}{% translate "fast" %}{% endif %}</td>
+      <td class="right nowrap">{{ r.took|span }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
 
   {% if level_rows %}
   <h2>{% translate "Loops per level — as fast as allowed" %}</h2>
