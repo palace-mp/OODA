@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import notify
-from .document import GUIDES, blocks, experiment_labels, experiments, plain_text, results_heading, section, tagged_blocks
+from .document import (
+    GUIDES, assumptions_heading, blocks, experiment_labels, experiments, other_eyes_heading, plain_text,
+    results_heading, section, surprise_heading, tagged_blocks,
+)
 from .models import Comment, Document, Reply
 
 MODEL = "claude-opus-5-5"
@@ -23,7 +26,10 @@ CRITERIA = {
     "observe": (
         "An observation states what was seen, as it is: what happened, where and when, how often, "
         "and how we know (a source, a count, who saw it). It does not explain, judge or propose. "
-        "Point out conclusions, proposals, vague quantities and missing sources."
+        "Observation keeps the organisation open: the most valuable observations are the ones that go "
+        "against the current picture or plan, and noticing what matters beats collecting more. "
+        "Point out conclusions, proposals, vague quantities, missing sources, and observations that only "
+        "confirm what was already believed."
     ),
     "orient": (
         "Orientation fills in knowledge around the observation: internal data (our own numbers, logs, "
@@ -32,12 +38,16 @@ CRITERIA = {
         "Decide phase to design experiments, so it must be backed up and comparable. Ask for the "
         "source behind claims, for numbers where there are only impressions, for a comparison "
         "(baseline, earlier period, peers) where a number stands alone, for the kind of knowledge "
-        "that is missing, and for hypotheses concrete enough to test."
+        "that is missing, and for hypotheses concrete enough to test. Orientation is also where mental "
+        "models are taken apart and rebuilt: ask which of today's assumptions still hold, offer how "
+        "someone from a completely different field might explain it, and point out when the text only "
+        "confirms the existing plan."
     ),
     "decide": (
         "Decide designs a set of experiments that validate the assumptions from Orient (its hypotheses "
         "are the input). Each experiment tests one assumption and states what we do, how we measure, "
-        "the result that would confirm it and the result that would refute it, and its time and cost. "
+        "the result that would confirm it, the result that would refute it, what we will do if it fails "
+        "(decided now, as in the observational method), and its time and cost. "
         "Point out assumptions from Orient that no experiment tests, experiments that test several "
         "things at once, outcomes that cannot be measured, thresholds that are not decided in advance, "
         "and experiments too big or slow to run soon."
@@ -171,6 +181,11 @@ def rule_review(doc, input_doc):
     numbers = re.search(r"\d", " ".join(texts))
     if doc.phase == "observe" and first and not numbers:
         notes.append(Note("comment", first, "Is there a number, a date or a source to go with this? How do we know?"))
+    if doc.phase == "observe":
+        heading, written = section(doc.body, (surprise_heading().lower(),))
+        if heading and not written:
+            notes.append(Note("comment", heading, (
+                "What here goes against what we expected? That is often the observation that matters most.")))
     if doc.phase == "orient" and first:
         notes += orient_rules(doc, texts, first, numbers)
     if doc.phase == "decide":
@@ -184,7 +199,7 @@ def rule_review(doc, input_doc):
 
 
 def decide_rules(doc):
-    hypothesis, what, measure, holds, fails, _cost = experiment_labels()
+    hypothesis, what, measure, holds, fails, then, _cost = experiment_labels()
     blocks_ = experiments(doc.body)
     started = {h: fields for h, fields in blocks_.items() if any(v for _l, v in fields.values())}
     if not started:
@@ -198,6 +213,7 @@ def decide_rules(doc):
             (measure, "How will we know? Name the number or signal we'll read off, and where it comes from."),
             (holds, "What result confirms the assumption? Decide it before the experiment starts."),
             (fails, "What result would show the assumption is wrong, so we stop or change course?"),
+            (then, "What will we do if it fails? Deciding it now means we can act the moment we see it."),
         ):
             line, value = fields.get(label, ("", ""))
             if line and not value:
@@ -261,6 +277,15 @@ def orient_rules(doc, texts, first, numbers):
                 "Compared to what? An earlier period, a baseline or peers makes this number comparable.")))
     if "href=" not in (doc.body or "") and not SOURCE.search(joined):
         notes.append(Note("comment", first, "Where does this come from? A link or a named source lets others check it."))
+    for heading_text, question in (
+        (assumptions_heading(), "Which of today's assumptions does this observation shake? Naming them is "
+                                "the first step in taking the old picture apart."),
+        (other_eyes_heading(), "How would an engineer, a trader or a nurse read this? Borrowing another "
+                               "field's model often shows what ours hides."),
+    ):
+        heading, written = section(doc.body, (heading_text.lower(),))
+        if heading and not written:
+            notes.append(Note("comment", heading, question))
     hypotheses, written = section(doc.body, ("hypotes", "hypothes"))
     if hypotheses and not written:
         notes.append(Note("comment", hypotheses, (

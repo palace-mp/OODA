@@ -549,8 +549,14 @@ class OrientReviewTests(Base):
             "<h3>Hypotheses: what could explain it, and how could we test it?</h3><p><br></p>",
             "<h3>Hypotheses: what could explain it, and how could we test it?</h3><p>Solo users skip it.</p>",
         ).replace("<p><br></p>", "<p>Churn is 7%, compared to 4% last year, according to the billing report.</p>", 1)
+        doc.body = doc.body.replace("<p><br></p>", "<p>Answered.</p>")
         doc.save()
         self.assertEqual(self.quotes(doc), {})
+
+    def test_asks_to_take_the_old_picture_apart(self):
+        notes = self.quotes(self.orient_doc("<p>Churn is 7% according to the billing report, compared to 4%.</p>"))
+        self.assertIn("What do we assume today, and which parts still hold?", notes)
+        self.assertIn("How would someone from a completely different field explain this?", notes)
 
 
 class DecideTests(Base):

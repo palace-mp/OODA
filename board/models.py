@@ -7,7 +7,7 @@ from django.utils.translation import gettext_lazy as _
 
 from accounts.models import Workspace
 
-from .document import has_content, heading, plain_text, template as document_template
+from .document import add_to_first_section, has_content, heading, observations_list, plain_text, template as document_template
 
 User = settings.AUTH_USER_MODEL
 
@@ -88,8 +88,14 @@ class Item(models.Model):
             i = PHASE_ORDER.index(self.phase)
             cycle = self.cycle - 1 if i == 0 else self.cycle
             before = Document.objects.filter(item=self, phase=PHASE_ORDER[i - 1], cycle=cycle).first()
-            doc = Document.objects.create(item=self, phase=self.phase, cycle=self.cycle,
-                                          body=document_template(self.phase, before))
+            body = document_template(self.phase, before)
+            pending = list(self.pending_observations().select_related("author")) if self.phase == OBSERVE else []
+            if pending:
+                # Observations noted during the last loop are where this one starts.
+                body = add_to_first_section(body, observations_list(pending))
+                Entry.objects.filter(pk__in=[e.pk for e in pending]).update(
+                    handled_at=timezone.now(), handled_how="carried")
+            doc = Document.objects.create(item=self, phase=self.phase, cycle=self.cycle, body=body)
         return doc
 
     def documents_in_order(self):
@@ -123,6 +129,15 @@ class Item(models.Model):
 
     def phase_index(self):
         return PHASE_ORDER.index(self.phase)
+
+    @transaction.atomic
+    def reorient(self, by, reason):
+        """Go back to Orient because the picture no longer fits. Counted apart in tempo."""
+        self.set_phase(ORIENT, by)
+        PhaseSpan.objects.filter(item=self, ended_at__isnull=True).update(reason=reason[:2000])
+
+    def pending_observations(self):
+        return self.entries.filter(kind=Entry.OBSERVATION, handled_at__isnull=True)
 
     @transaction.atomic
     def set_phase(self, phase, by=None):
@@ -194,6 +209,7 @@ class PhaseSpan(models.Model):
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
     moved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reason = models.TextField(blank=True)  # set when someone went back to Orient on purpose
 
     class Meta:
         ordering = ["started_at"]
@@ -227,6 +243,11 @@ class Entry(models.Model):
     cycle = models.PositiveIntegerField(null=True, blank=True)
     author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="entries")
     created_at = models.DateTimeField(auto_now_add=True)
+    # An observation on an item waits until someone takes it in: re-orients on it,
+    # notes it, or it is carried into the next Observe document.
+    handled_at = models.DateTimeField(null=True, blank=True)
+    handled_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    handled_how = models.CharField(max_length=12, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -385,3 +406,20 @@ class Reply(models.Model):
     class Meta:
         ordering = ["created_at"]
         verbose_name_plural = "replies"
+
+
+class Verdict(models.Model):
+    """How an experiment from Decide came out, recorded in Act."""
+
+    HELD, FAILED, UNCLEAR = "held", "failed", "unclear"
+    OUTCOMES = [(HELD, _("Held")), (FAILED, _("Failed")), (UNCLEAR, _("Unclear"))]
+
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="verdicts")
+    cycle = models.PositiveIntegerField()
+    experiment = models.CharField(max_length=200)  # its heading in the Decide document
+    outcome = models.CharField(max_length=10, choices=OUTCOMES)
+    decided_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    decided_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["item", "cycle", "experiment"], name="one_verdict")]

@@ -56,11 +56,14 @@ def from_entry(entry):
 
 # What each phase is about, shown above its document.
 GUIDES = {
-    "observe": gettext_lazy("Describe what you see, as it is — not what should be done about it."),
+    "observe": gettext_lazy(
+        "Describe what you see, as it is — not what should be done about it. Look hardest for what "
+        "goes against the picture we have: noticing what matters beats collecting more."
+    ),
     "orient": gettext_lazy(
         "Back the observation up with knowledge: internal and external data, hard numbers and soft "
-        "signals, history and projections. Make it comparable, and end with hypotheses Decide can "
-        "design experiments around."
+        "signals, history and projections. Take the old picture apart, try other ways of seeing it, "
+        "and build a new one. End with hypotheses Decide can design experiments around."
     ),
     "decide": gettext_lazy(
         "Design experiments that validate the assumptions from Orient. Each one tests one assumption, "
@@ -77,13 +80,19 @@ GUIDES = {
 def template(phase, previous=None):
     """A new document starts with the questions its phase asks. `previous` is the document before it."""
     questions = {
-        "observe": [_("What happened?"), _("Where and when?"), _("How often, how many?"), _("How do we know?")],
+        "observe": [
+            _("What happened?"), _("Where and when?"), _("How often, how many?"), _("How do we know?"),
+            surprise_heading(),
+        ],
         "orient": [
             _("What do our own data say? Numbers, logs, sales, support"),
             _("What do outside sources say? Research, benchmarks, the market"),
             _("What do people say? Interviews, conversations, impressions"),
             _("Has this happened before, and where is it heading?"),
             _("Compared to what? Baseline, earlier periods, peers"),
+            assumptions_heading(),
+            other_eyes_heading(),
+            new_picture_heading(),
             _("Hypotheses: what could explain it, and how could we test it?"),
             _("What don't we know yet?"),
         ],
@@ -99,6 +108,45 @@ def template(phase, previous=None):
         if found:
             html = html.replace("<p><br></p>", found, 1)
     return html
+
+
+def surprise_heading():
+    return _("What surprised us, or goes against our current picture?")
+
+
+def assumptions_heading():
+    return _("What do we assume today, and which parts still hold?")
+
+
+def other_eyes_heading():
+    return _("How would someone from a completely different field explain this?")
+
+
+def new_picture_heading():
+    return _("What new picture do the pieces form?")
+
+
+def observations_list(entries):
+    """Observations noted on an item while it was elsewhere in the loop, as a list."""
+    lines = []
+    for e in entries:
+        who = f" <em>— {escape(e.author.name)}</em>" if e.author else ""
+        lines.append(f"<li>{escape(e.body).replace(chr(10), '<br>')}{who}</li>")
+    return f"<ul>{''.join(lines)}</ul>" if lines else ""
+
+
+def add_to_first_section(html, extra):
+    """Put `extra` at the end of what is written under the first heading."""
+    match = re.search(r"</h[23]>(.*?)(?=<h[23]>|$)", html, re.S)
+    if not match or not extra:
+        return html
+    content = match.group(1)
+    if not tidy(content):
+        content = extra
+    else:
+        content = re.sub(r"</ul>\s*$", "", content) + re.sub(r"^<ul>", "", extra) if content.rstrip().endswith("</ul>") \
+            else content + extra
+    return html[:match.start(1)] + content + html[match.end(1):]
 
 
 def results_heading():
@@ -130,7 +178,7 @@ def section_html(html, starts):
 
 def experiment_labels():
     return [_("Hypothesis"), _("What we do"), _("How we measure"), _("It holds if"), _("It fails if"),
-            _("Time and cost")]
+            _("If it fails, we will"), _("Time and cost")]
 
 
 def experiment(n):
