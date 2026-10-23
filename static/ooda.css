@@ -308,10 +308,10 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .guide-text { font-style: italic; color: var(--ink-2); }
 .doc-status { font: 0.78rem var(--sans); color: var(--muted); }
 .doc-status.s-review { color: var(--decide); font-weight: 600; }
-.input-doc { margin: 1rem 0 0; max-width: 760px; border-left: 2px solid var(--rule-2); padding: 0.1rem 0 0.1rem 1rem; }
-.input-doc summary { cursor: pointer; font: 0.85rem var(--sans); color: var(--ink-2); }
-.input-doc .input-body { font-size: 0.95rem; color: var(--ink-2); margin-top: 0.8rem; max-height: 22rem; overflow: auto; }
-.input-doc .meta { margin: 0.4rem 0 0.2rem; }
+.input-doc:not(.chip) { margin: 1rem 0 0; max-width: 760px; border-left: 2px solid var(--rule-2); padding: 0.1rem 0 0.1rem 1rem; }
+.input-doc:not(.chip) summary { cursor: pointer; font: 0.85rem var(--sans); color: var(--ink-2); }
+.input-doc:not(.chip) .input-body { font-size: 0.95rem; color: var(--ink-2); margin-top: 0.8rem; max-height: 22rem; overflow: auto; }
+.input-doc:not(.chip) .meta { margin: 0.4rem 0 0.2rem; }
 
 /* Re-orienting and observations that wait to be taken in */
 .reorient-box { position: relative; }
@@ -370,6 +370,8 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .chip > summary::-webkit-details-marker { display: none; }
 .chip > summary:hover { border-color: var(--rule-2); color: var(--ink); }
 .chip[open] { flex-basis: 100%; order: 10; border-left: 2px solid var(--rule-2); padding: 0 0 0.4rem 1rem; }
+.context > .chip { margin: 0; max-width: none; }
+.context > .chip:not([open]) { border: 0; padding: 0; }
 .chip[open] > summary { border: 0; padding: 0.2rem 0; background: none; color: var(--ink); }
 .chip .input-body { font-size: 0.95rem; color: var(--ink-2); margin-top: 0.6rem; max-height: 22rem; overflow: auto; }
 .chip.lenses ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.8rem; margin-top: 0.5rem; }
