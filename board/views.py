@@ -225,6 +225,7 @@ def item_page_context(item, doc=None, public=False):
         "closed_threads": [c for c in threads if not c.is_open],
         "thread_total": len(threads),
         "outcomes": outcomes_for(doc),
+        "kept_readings": readings_before(doc),
         "verdict_choices": Verdict.OUTCOMES,
         "pending": list(item.pending_observations().select_related("author")),
         "reoriented": next((s for s in reversed(spans) if s.reason and s.phase == doc.phase
@@ -239,6 +240,14 @@ def item_page_context(item, doc=None, public=False):
         "avg_loop": sum(loop_times, timedelta()) / len(loop_times) if loop_times else None,
         "public": public,
     }
+
+
+def readings_before(doc):
+    """Other readings still standing on the document before this one: input, not noise."""
+    before = doc.previous()
+    if before is None:
+        return []
+    return list(before.comments.filter(kind=Comment.READING, status=Comment.OPEN).select_related("author"))
 
 
 def outcomes_for(doc):
@@ -610,13 +619,13 @@ def comment(request, number):
     item, redirect_to = get_item(request, number)
     if redirect_to:
         return redirect_to
-    kind = Comment.SUGGESTION if request.POST.get("kind") == Comment.SUGGESTION else Comment.COMMENT
+    kind = request.POST.get("kind") if request.POST.get("kind") in dict(Comment.KINDS) else Comment.COMMENT
     quote = request.POST.get("quote", "")[:2000]
     body = request.POST.get("body", "").strip()
     replacement = request.POST.get("replacement", "")[:4000]
     if kind == Comment.SUGGESTION and (not quote or replacement == quote):
         return redirect(item)
-    if kind == Comment.COMMENT and not body:
+    if kind in (Comment.COMMENT, Comment.READING) and not body:
         return redirect(item)
     c = Comment.objects.create(
         item=item, document=item.document, kind=kind, quote=quote, prefix=request.POST.get("prefix", "")[-60:],
@@ -657,7 +666,9 @@ def comment_status(request, pk):
     editor = item.can_edit(request.user, request.membership)
     action = request.POST.get("action")
     if action in ("resolve", "reopen"):
-        if not (editor or c.author_id == request.user.pk):
+        # Another reading stays until the person who offered it withdraws it.
+        allowed = c.author_id == request.user.pk or (editor and not c.is_reading)
+        if not allowed:
             return HttpResponseForbidden()
         c.close(Comment.RESOLVED if action == "resolve" else Comment.OPEN, request.user)
     elif action in ("accept", "reject") and c.is_suggestion and c.is_open:

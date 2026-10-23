@@ -185,6 +185,17 @@
   </section>
   {% endif %}
 
+  {% if kept_readings %}
+  <section class="kept-readings">
+    <h2>{% blocktranslate with phase=input_doc.get_phase_display %}Other readings kept from {{ phase }}{% endblocktranslate %}</h2>
+    <ul class="plain">
+      {% for r in kept_readings %}
+      <li><blockquote>{{ r.quote|truncatechars:160 }}</blockquote>{{ r.body|rich }} <span class="meta">— {{ r.author.name|default:_("someone") }}{% if r.author.is_agent %} <span class="ai">AI</span>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   {% if input_doc %}
   <details class="input-doc"{% if is_current and not doc.body|has_content %} open{% endif %}>
     <summary>{% blocktranslate with phase=input_doc.get_phase_display n=input_doc.cycle %}Input: the {{ phase }} document, loop {{ n }}{% endblocktranslate %}</summary>
@@ -316,6 +327,7 @@
 <div class="selection-pop" hidden>
   <button type="button" data-start="comment">{% translate "Comment" %}</button>
   <button type="button" data-start="suggestion">{% translate "Suggest a change" %}</button>
+  <button type="button" data-start="reading" title="{% translate 'Another way of seeing this passage. It stays beside the document and goes along as input to the next phase.' %}">{% translate "Another reading" %}</button>
 </div>
 <button type="button" class="para-comment" hidden title="{% translate 'Comment on this paragraph' %}" aria-label="{% translate 'Comment on this paragraph' %}">+</button>
 
@@ -330,7 +342,7 @@
       <p class="change"><del class="quote-preview"></del></p>
       <label class="meta">{% translate "Replace with" %}<textarea name="replacement" rows="2"></textarea></label>
     </div>
-    <textarea name="body" rows="2" data-comment-placeholder="{% translate 'Comment… use @name to mention someone' %}" data-suggestion-placeholder="{% translate 'Why? (optional)' %}"></textarea>
+    <textarea name="body" rows="2" data-comment-placeholder="{% translate 'Comment… use @name to mention someone' %}" data-reading-placeholder="{% translate 'How else could this be read? It stays beside the document, it isn\'t resolved away.' %}" data-suggestion-placeholder="{% translate 'Why? (optional)' %}"></textarea>
     <div class="row"><button class="primary">{% translate "Send" %}</button><button type="button" class="link" data-cancel>{% translate "cancel" %}</button></div>
   </form>
 </template>

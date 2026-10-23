@@ -18,7 +18,7 @@
     <table class="items compact">
       {% for m in memberships %}
       <tr>
-        <td>{{ m.user.name }}{% if m.user.is_agent %} <span class="ai">AI</span>{% else %} <span class="meta">{{ m.user.email }}</span>{% endif %}</td>
+        <td>{{ m.user.name }}{% if m.user.is_agent %} <span class="ai">AI</span> <span class="meta">{{ m.user.agent_lens|default:"data" }}</span>{% else %} <span class="meta">{{ m.user.email }}</span>{% endif %}</td>
         <td class="meta">{{ m.get_role_display }}</td>
         <td class="right">
           {% if is_owner and m.user != user %}

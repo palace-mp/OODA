@@ -1,5 +1,5 @@
 {% load i18n ooda %}
-<div class="thread{% if c.is_suggestion %} suggestion{% endif %}{% if not c.is_open %} closed{% endif %}" id="c{{ c.pk }}"
+<div class="thread{% if c.is_suggestion %} suggestion{% endif %}{% if c.is_reading %} reading{% endif %}{% if not c.is_open %} closed{% endif %}" id="c{{ c.pk }}"
   data-comment="{{ c.pk }}" data-kind="{{ c.kind }}" data-quote="{{ c.quote }}" data-prefix="{{ c.prefix }}"
   {% if c.is_suggestion %}data-replacement="{{ c.replacement }}"{% endif %}{% if c.is_open %} data-open{% endif %}>
   <p class="thread-head meta">
@@ -8,6 +8,9 @@
   </p>
   {% if c.is_suggestion %}
     <p class="change"><del>{{ c.quote }}</del> <span class="arrow">→</span> <ins>{{ c.replacement|default:_("(remove)") }}</ins></p>
+  {% elif c.is_reading %}
+    <p class="reading-label">{% translate "Another reading" %}</p>
+    {% if c.quote %}<blockquote class="anchor-quote" hidden>{{ c.quote|truncatechars:140 }}</blockquote>{% endif %}
   {% elif c.quote %}
     <blockquote class="anchor-quote" hidden>{{ c.quote|truncatechars:140 }}</blockquote>
   {% endif %}
@@ -31,9 +34,9 @@
       <form method="post" action="{% url 'board:comment_status' c.pk %}" class="inline">{% csrf_token %}
         <button class="small" name="action" value="reject">{% translate "Reject" %}</button>
       </form>
-      {% elif can_edit or c.author_id == user.pk %}
+      {% elif c.author_id == user.pk or can_edit and not c.is_reading %}
       <form method="post" action="{% url 'board:comment_status' c.pk %}" class="inline">{% csrf_token %}
-        <button class="link" name="action" value="resolve">{% if c.is_suggestion %}{% translate "withdraw" %}{% else %}{% translate "resolve" %}{% endif %}</button>
+        <button class="link" name="action" value="resolve">{% if c.is_suggestion or c.is_reading %}{% translate "withdraw" %}{% else %}{% translate "resolve" %}{% endif %}</button>
       </form>
       {% endif %}
       <button type="button" class="link" data-reply>{% translate "reply" %}</button>

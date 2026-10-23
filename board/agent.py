@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import notify
 from .document import (
-    GUIDES, assumptions_heading, blocks, felt_heading, inversion_heading, experiment_labels, experiments, other_eyes_heading, plain_text,
+    GUIDES, assumptions_heading, blocks, felt_heading, inversion_heading, missing_voices_heading, experiment_labels, experiments, other_eyes_heading, plain_text,
     results_heading, section, surprise_heading, tagged_blocks,
 )
 from .models import Comment, Document, Reply
@@ -95,7 +95,27 @@ def has_credentials():
     )
 
 
-def claude_review(doc, input_doc):
+# The angle an agent reviews from. Several agents with different lenses widen the picture.
+LENSES = {
+    "data": (
+        "Your lens is evidence: data, comparisons, sources and whether things can be measured and decided."
+    ),
+    "inversion": (
+        "Your lens is inversion. For the main claims and hypotheses, ask what if it is the other way "
+        "around: the effect is the cause, the problem is a symptom, the opposite is true. Offer these as "
+        "readings (kind \"reading\"): another way of seeing the passage, written as one or two sentences "
+        "that state the inverted reading and what would tell the two apart. Do not suggest edits."
+    ),
+    "human": (
+        "Your lens is the human experience: emotions, relationships, wellbeing, and the people who are "
+        "affected but not heard. You never state what people feel; you cannot know it. You ask the "
+        "humans questions that invite their experience and gut feeling into the document, and you point "
+        "out whose voice is missing. Use comments only."
+    ),
+}
+
+
+def claude_review(doc, input_doc, lens="data"):
     import anthropic
 
     schema = {
@@ -106,7 +126,7 @@ def claude_review(doc, input_doc):
                 "items": {
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "enum": ["comment", "suggestion"]},
+                        "kind": {"type": "string", "enum": ["comment", "suggestion", "reading"]},
                         "quote": {"type": "string"},
                         "replacement": {"type": "string"},
                         "comment": {"type": "string"},
@@ -124,6 +144,7 @@ def claude_review(doc, input_doc):
         "(Observe, Orient, Decide, Act). You take part like a careful colleague: you comment on "
         "passages and suggest concrete rewordings; people decide what to accept.\n\n"
         f"This document belongs to the {doc.get_phase_display()} phase. {CRITERIA[doc.phase]}\n\n"
+        f"{LENSES.get(lens, LENSES['data'])}\n\n"
         "Return at most four notes, the ones that matter most; none if the document is good. Each note "
         "quotes an exact passage copied character for character from a single paragraph. A suggestion "
         "gives the text to put in place of the quote; a comment asks a question or points something out "
@@ -308,10 +329,66 @@ def orient_rules(doc, texts, first, numbers):
     return notes
 
 
-def review(doc, use_claude):
+def review(doc, use_claude, lens="data"):
     input_doc = doc.previous()
-    notes = claude_review(doc, input_doc) if use_claude else rule_review(doc, input_doc)
-    return notes
+    if use_claude:
+        return claude_review(doc, input_doc, lens)
+    if lens == "inversion":
+        return inversion_rules(doc)
+    if lens == "human":
+        return human_rules(doc)
+    return rule_review(doc, input_doc)
+
+
+def claims(doc):
+    """The lines a review from another angle should look at: hypotheses, and results."""
+    lines = []
+    hypothesis_label = experiment_labels()[0]
+    for tag, text in tagged_blocks(doc.body):
+        if tag == "li" and text.startswith(hypothesis_label + ":") and text[len(hypothesis_label) + 1:].strip():
+            lines.append(text.strip())
+    if doc.phase == "orient":
+        heading, _written = section(doc.body, ("hypothes", "hypotes"))
+        inside = False
+        for tag, text in tagged_blocks(doc.body):
+            if tag in ("h2", "h3"):
+                inside = text == heading
+            elif inside and text.strip():
+                lines.append(text.strip())
+    if doc.phase in ("observe", "act") and not lines:
+        lines = [t.strip() for t in blocks(doc.body, headings=False) if len(t.strip()) > 30][:2]
+    return lines
+
+
+def inversion_rules(doc):
+    return [Note("reading", line, (
+        "Read it the other way around: what if this is the effect rather than the cause, or the opposite "
+        "is true? If that reading fits what we know just as well, we know less than we think, and an "
+        "experiment should tell the two apart.")) for line in claims(doc)[:3]]
+
+
+def human_rules(doc):
+    notes = []
+    texts = [t for t in blocks(doc.body, headings=False) if t.strip()]
+    first = next((t for t in texts if not t.endswith("?")), None)
+    if first:
+        notes.append(Note("comment", first, (
+            "Who is closest to this, and how does it feel for them? Better to ask them than to guess.")))
+    heading, written = section(doc.body, (missing_voices_heading().lower(),))
+    if heading and not written:
+        notes.append(Note("comment", heading, "Who is affected by this but hasn't been part of the conversation?"))
+    labels = experiment_labels()
+    for tag, text in tagged_blocks(doc.body):
+        if tag == "li" and text.startswith(labels[1] + ":") and text[len(labels[1]) + 1:].strip():
+            notes.append(Note("comment", text.strip(), (
+                "How will the people affected experience this experiment? Have they been asked?")))
+            break
+    if doc.phase == "act":
+        heading, _w = section(doc.body, (results_heading().lower(),))
+        if heading:
+            notes.append(Note("comment", heading, (
+                "How did it feel for those involved? A felt result is a result too, and the next Observe can use it.")))
+    return notes[:3]
 
 
 def claude_reply(thread, doc):
@@ -374,7 +451,7 @@ class Agent:
     def review(self, doc):
         item = doc.item
         self.log(f"Reviewing #{item.number} {item.title} ({doc.get_phase_display()})")
-        notes = review(doc, self.use_claude)
+        notes = review(doc, self.use_claude, self.user.agent_lens or "data")
         made = 0
         for note in notes:
             found = anchor(doc.body, note.quote)
@@ -384,7 +461,7 @@ class Agent:
             suggestion = note.kind == "suggestion"
             c = Comment.objects.create(
                 item=item, document=doc, author=self.user, quote=quote, prefix=prefix,
-                kind=Comment.SUGGESTION if suggestion else Comment.COMMENT,
+                kind=note.kind if note.kind in dict(Comment.KINDS) else Comment.COMMENT,
                 replacement=note.replacement if suggestion else "", body=note.comment.strip(),
             )
             if suggestion:

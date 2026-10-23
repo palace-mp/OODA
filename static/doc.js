@@ -118,7 +118,7 @@
       return;
     }
     const suggestion = card.dataset.kind === "suggestion";
-    const els = wrap(loc, () => makeMark(id, suggestion ? "s" : "c"));
+    const els = wrap(loc, () => makeMark(id, suggestion ? "s" : card.dataset.kind === "reading" ? "c r" : "c"));
     if (suggestion && els.length) {
       const ins = document.createElement("ins");
       ins.className = "s-ins";
@@ -297,7 +297,8 @@
     $(".quote-preview", form).textContent = sel.quote;
     form.elements.replacement.value = sel.quote;
     const body = form.elements.body;
-    body.placeholder = suggestion ? body.dataset.suggestionPlaceholder : body.dataset.commentPlaceholder;
+    body.placeholder = suggestion ? body.dataset.suggestionPlaceholder
+      : kind === "reading" ? body.dataset.readingPlaceholder : body.dataset.commentPlaceholder;
     body.required = !suggestion;
     $("[data-cancel]", form).addEventListener("click", cancelComposer);
     form.addEventListener("keydown", (e) => {

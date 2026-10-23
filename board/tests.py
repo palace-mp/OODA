@@ -782,3 +782,64 @@ class FeltSignalTests(Base):
             item.advance(self.anna)
         self.assertIn("<li><strong>Felt:</strong> Heavy mood", item.document.body)
         self.assertIn("<h3>What if it is the other way around?</h3>", item.documents.get(phase="orient", cycle=1).body)
+
+
+class PerspectiveTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.it = self.item("Churn", body="<p>Solo users leave in week one.</p>")
+
+    def test_a_reading_stays_until_its_author_withdraws_it(self):
+        self.client.force_login(self.bo)
+        self.client.post(reverse("board:comment", args=[self.it.number]), {
+            "kind": "reading", "quote": "Solo users leave", "body": "Maybe they leave because they succeed fast."})
+        c = Comment.objects.get()
+        self.assertEqual(c.kind, "reading")
+        status = reverse("board:comment_status", args=[c.pk])
+        self.client.force_login(self.anna)
+        self.assertEqual(self.client.post(status, {"action": "resolve"}).status_code, 403)
+        self.client.force_login(self.bo)
+        self.client.post(status, {"action": "resolve"})
+        c.refresh_from_db()
+        self.assertEqual(c.status, Comment.RESOLVED)
+
+    def test_open_readings_go_along_to_the_next_phase(self):
+        Comment.objects.create(item=self.it, document=self.it.document, kind="reading", quote="Solo users leave",
+                               body="They succeed fast and don't need us.", author=self.bo)
+        self.it.advance(self.anna)
+        r = self.client.get(self.it.get_absolute_url())
+        self.assertContains(r, "Other readings kept from Observe")
+        self.assertContains(r, "They succeed fast and don")
+
+    def lens_agent(self, lens):
+        from accounts.models import Membership as M
+
+        from .agent import Agent
+
+        agent = User.objects.create_user(f"{lens}@agents.ooda.local", None, name=lens.title(), is_agent=True,
+                                         agent_lens=lens)
+        return Agent(agent, M.objects.create(workspace=self.ws, user=agent), False, log=lambda m: None)
+
+    def to_decide_in_review(self):
+        self.it.advance(self.anna)
+        self.it.advance(self.anna)
+        doc = self.it.document
+        doc.body = doc.body.replace("<li><strong>Hypothesis:</strong> </li>",
+                                    "<li><strong>Hypothesis:</strong> Solo users don't need a team.</li>", 1).replace(
+            "<li><strong>What we do:</strong> </li>", "<li><strong>What we do:</strong> Hide the invite step.</li>", 1)
+        doc.status = Document.REVIEW
+        doc.save()
+        return doc
+
+    def test_inversion_agent_offers_readings_of_hypotheses(self):
+        doc = self.to_decide_in_review()
+        self.lens_agent("inversion").run_once()
+        c = Comment.objects.get(document=doc)
+        self.assertEqual((c.kind, c.quote), ("reading", "Hypothesis: Solo users don't need a team."))
+
+    def test_human_agent_asks_rather_than_tells(self):
+        doc = self.to_decide_in_review()
+        self.lens_agent("human").run_once()
+        bodies = list(Comment.objects.filter(document=doc).values_list("body", flat=True))
+        self.assertTrue(any("Have they been asked?" in b for b in bodies))
+        self.assertTrue(all(c.kind == "comment" for c in Comment.objects.filter(document=doc)))

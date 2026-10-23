@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils.text import slugify
 
 from accounts.models import Membership, User, Workspace
-from board.agent import Agent, has_credentials
+from board.agent import LENSES, Agent, has_credentials
 
 
 class Command(BaseCommand):
@@ -20,6 +20,9 @@ class Command(BaseCommand):
         parser.add_argument("--once", action="store_true", help="Do one round and stop")
         parser.add_argument("--interval", type=int, default=15, help="Seconds between rounds (default: 15)")
         parser.add_argument("--rules", action="store_true", help="Use the simple rules even if Claude is available")
+        parser.add_argument("--lens", choices=sorted(LENSES), help=(
+            "The angle it reviews from: data (evidence and measurability, the default), inversion (what if "
+            "it is the other way around) or human (asks people about experience and missing voices)"))
 
     def handle(self, *args, **options):
         workspace = (Workspace.objects.filter(pk=options["workspace"]) if options["workspace"]
@@ -31,6 +34,9 @@ class Command(BaseCommand):
             email=f"{slugify(name) or 'agent'}@agents.ooda.local",
             defaults={"name": name, "is_agent": True, "password": make_password(None)},
         )
+        if options["lens"] and options["lens"] != user.agent_lens:
+            user.agent_lens = options["lens"]
+            user.save(update_fields=["agent_lens"])
         membership, _ = Membership.objects.get_or_create(workspace=workspace, user=user)
         use_claude = has_credentials() and not options["rules"]
         if use_claude:
@@ -39,7 +45,8 @@ class Command(BaseCommand):
             except ImportError:
                 use_claude = False
         self.stdout.write(
-            f"{name} ({'new' if created else 'existing'} agent, @{user.handle}) on board “{workspace}”, "
+            f"{name} ({'new' if created else 'existing'} agent, @{user.handle}, lens: {user.agent_lens or 'data'}) "
+            f"on board “{workspace}”, "
             f"thinking with {'Claude' if use_claude else 'simple rules'}. Ctrl+C stops it."
         )
         agent = Agent(user, membership, use_claude, log=lambda m: self.stdout.write(m))

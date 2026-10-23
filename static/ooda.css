@@ -414,6 +414,13 @@ ins.off { display: none; }
 @media (min-width: 1000px) { .threads > .thread { position: absolute; left: 0; right: 0; margin: 0; } }
 .thread.active, .thread.composer { border-color: var(--rule-2); box-shadow: 0 4px 18px rgb(0 0 0 / 0.08); z-index: 2; }
 .thread.suggestion { border-left: 3px solid var(--act); }
+.thread.reading { border-left: 3px solid var(--orient); }
+.reading-label { margin: 0 0 0.3rem; font: 600 0.62rem var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--orient); }
+mark.c.r { background: color-mix(in srgb, var(--orient) 18%, transparent); }
+.kept-readings { margin: 1.1rem 0 0; max-width: 760px; border-left: 3px solid var(--orient); padding: 0.2rem 0 0.2rem 1rem; }
+.kept-readings h2 { margin: 0 0 0.5rem; color: var(--orient); }
+.kept-readings li { padding: 0.35rem 0; }
+.kept-readings blockquote { margin: 0 0 0.2rem; font-size: 0.85rem; color: var(--muted); font-style: italic; }
 .thread.orphan { opacity: 0.8; }
 .thread.closed { background: transparent; }
 .thread-head { margin: 0 0 0.35rem; }
