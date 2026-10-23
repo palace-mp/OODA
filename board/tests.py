@@ -595,3 +595,62 @@ class DecideTests(Base):
 
         notes = rule_review(self.decide_doc(""), None)
         self.assertEqual([n.quote for n in notes], ["Experiment 1"])
+
+
+class ActTests(Base):
+    def run_to_act(self, decide_fill=True):
+        item = self.item("Printer")
+        item.advance(self.anna)
+        item.advance(self.anna)
+        decide = item.document
+        if decide_fill:
+            decide.body = decide.body.replace(
+                "<li><strong>Hypothesis:</strong> </li>",
+                "<li><strong>Hypothesis:</strong> The Monday batch overloads the tray.</li>", 1)
+            decide.save()
+        item.advance(self.anna)
+        return item
+
+    def test_act_is_a_journal_with_one_result_line_per_experiment(self):
+        doc = self.run_to_act().document
+        self.assertEqual(doc.phase, "act")
+        self.assertIn("<h3>Journal</h3>", doc.body)
+        self.assertIn("<h3>Results as observations</h3><ul>"
+                      "<li><strong>Experiment 1 — The Monday batch overloads the tray:</strong> </li></ul>", doc.body)
+
+    def test_next_observe_starts_from_the_results(self):
+        item = self.run_to_act()
+        act = item.document
+        act.body = act.body.replace(
+            ":</strong> </li>", ":</strong> 1 jam on Monday 3 Nov, compared with 4 the week before.</li>")
+        act.save()
+        item.advance(self.anna)
+        observe = item.document
+        self.assertEqual((observe.phase, observe.cycle), ("observe", 2))
+        self.assertTrue(observe.body.startswith(
+            "<h3>What happened?</h3><ul><li><strong>Experiment 1 — The Monday batch overloads the tray:</strong> "
+            "1 jam on Monday 3 Nov, compared with 4 the week before.</li></ul><h3>Where and when?</h3>"))
+
+    def test_agent_keeps_results_observational(self):
+        from .agent import rule_review
+
+        item = self.run_to_act()
+        act = item.document
+        act.body = act.body.replace(":</strong> </li>", ":</strong> It worked, so we should keep it.</li>")
+        act.save()
+        notes = {n.quote: n.comment for n in rule_review(act, None)}
+        self.assertIn("reads as a conclusion", notes["It worked, so we should keep it."])
+        self.assertIn("dated lines", notes["Journal"])
+        act.body = act.body.replace("It worked, so we should keep it.", "").replace(
+            "<h3>Journal</h3><p><br></p>", "<h3>Journal</h3><p>3 Nov: split the batch.</p>")
+        act.save()
+        notes = {n.quote: n.comment for n in rule_review(act, None)}
+        self.assertEqual(list(notes), ["Experiment 1 — The Monday batch overloads the tray:"])
+
+
+class TidyLabelTests(TestCase):
+    def test_answers_written_inside_a_label_are_kept(self):
+        from .document import tidy
+
+        self.assertEqual(tidy("<ul><li><strong>Result:</strong> </li></ul>"), "")
+        self.assertEqual(tidy("<ul><li><strong>Result:1 jam</strong></li></ul>"), "<ul><li><strong>Result:1 jam</strong></li></ul>")

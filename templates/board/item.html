@@ -118,6 +118,10 @@
     <button type="button" data-cmd="insertOrderedList" title="{% translate 'Numbered list' %}">1.</button>
     <button type="button" data-block="blockquote" title="{% translate 'Quote' %}">“</button>
     <button type="button" data-link title="{% translate 'Link' %}" data-prompt="{% translate 'Address' %}">↗</button>
+    {% if doc.phase == "act" %}
+    <span class="sep"></span>
+    <button type="button" data-journal data-who="{{ user.name }}" title="{% translate 'New journal entry with date and time' %}" class="journal-btn">{% translate "+ Entry" %}</button>
+    {% endif %}
     <span class="save-state meta" aria-live="polite"
       data-saving="{% translate 'Saving…' %}" data-saved="{% translate 'Saved' %}"
       data-conflict="{% translate 'Someone else changed this document. Reload to see their version — your last changes were not saved.' %}"

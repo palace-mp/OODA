@@ -66,7 +66,11 @@ GUIDES = {
         "Design experiments that validate the assumptions from Orient. Each one tests one assumption, "
         "with a result we can measure and decide on. The output is a set of experiments."
     ),
-    "act": gettext_lazy("What was done, and what came of it? This is what the next observation starts from."),
+    "act": gettext_lazy(
+        "Run the experiments and keep a journal of what happens. Write the results as observations — "
+        "what was seen and measured, against the thresholds set in Decide — so the next Observe can "
+        "start from them."
+    ),
 }
 
 
@@ -83,11 +87,45 @@ def template(phase, previous=None):
             _("Hypotheses: what could explain it, and how could we test it?"),
             _("What don't we know yet?"),
         ],
-        "act": [_("What we did"), _("What happened"), _("What to observe next")],
     }.get(phase, [])
     if phase == "decide":
         return decide_template(previous)
-    return "".join(f"<h3>{escape(q)}</h3><p><br></p>" for q in questions)
+    if phase == "act":
+        return act_template(previous)
+    html = "".join(f"<h3>{escape(q)}</h3><p><br></p>" for q in questions)
+    if phase == "observe" and previous is not None:
+        # A new loop starts from what the last one's experiments showed.
+        found = section_html(previous.body, results_heading())
+        if found:
+            html = html.replace("<p><br></p>", found, 1)
+    return html
+
+
+def results_heading():
+    return _("Results as observations")
+
+
+def act_template(decide=None):
+    """A journal for running the experiments, and one result line per experiment planned in Decide."""
+    lines = []
+    hypothesis = experiment_labels()[0]
+    for name, fields in experiments(decide.body if decide else "").items():
+        tested = fields.get(hypothesis, ("", ""))[1].rstrip(" .")
+        if any(value for _line, value in fields.values()):
+            label = f"{name} — {tested}" if tested else name
+            lines.append(f"<li><strong>{escape(label)}:</strong> </li>")
+    results = f"<ul>{''.join(lines)}</ul>" if lines else "<p><br></p>"
+    return (
+        f"<h3>{escape(_('Journal'))}</h3><p><br></p>"
+        f"<h3>{escape(results_heading())}</h3>{results}"
+    )
+
+
+def section_html(html, starts):
+    """The HTML written under the heading that starts with `starts`, tidied."""
+    pattern = r"<h[23]>\s*" + re.escape(escape(starts)) + r"[^<]*</h[23]>(.*?)(?=<h[23]>|$)"
+    match = re.search(pattern, html or "", re.S | re.I)
+    return tidy(match.group(1)) if match else ""
 
 
 def experiment_labels():
@@ -119,10 +157,57 @@ def hypotheses(html):
 def tidy(html):
     """For reading afterwards: drop empty paragraphs and questions nobody answered."""
     html = re.sub(r"<p>(\s|<br>)*</p>", "", html or "")
-    html = re.sub(r"<li>\s*(<strong>[^<]*</strong>)?\s*(<br>)?\s*</li>", "", html)  # labels left blank
+    html = re.sub(r"<li>\s*(<strong>[^<]*:</strong>)?\s*(<br>)?\s*</li>", "", html)  # labels left blank
     html = re.sub(r"<(ul|ol)>\s*</\1>", "", html)
     previous = None
     while previous != html:
         previous = html
         html = re.sub(r"<h([23])>[^<]*</h\1>(?=\s*(<h[23]>|$))", "", html)
     return html
+
+
+# --- Reading documents as text ---------------------------------------------
+
+
+def tagged_blocks(html):
+    """(tag, text) for each paragraph-like element, the text as the browser's textContent sees it."""
+    out = []
+    for tag, inner in re.findall(r"<(p|h2|h3|li|blockquote)>(.*?)</\1>", html or "", re.S):
+        if re.search(r"<(p|h2|h3|li|blockquote)>", inner):
+            continue  # holds other blocks; those are listed on their own
+        out.append((tag, unescape(re.sub(r"<[^>]+>", "", inner))))
+    return out
+
+
+def blocks(html, headings=True):
+    return [text for tag, text in tagged_blocks(html) if headings or tag not in ("h2", "h3")]
+
+
+def section(html, starts):
+    """The heading starting with one of `starts`, and the text written under it."""
+    heading, text = None, []
+    for tag, value in tagged_blocks(html):
+        if tag in ("h2", "h3"):
+            if heading:
+                break
+            if value.lower().startswith(starts):
+                heading = value
+        elif heading:
+            text.append(value)
+    return heading, " ".join(text).strip()
+
+
+def experiments(html):
+    """{heading: {label: (line, value)}} for each experiment block in a Decide document."""
+    found, current = {}, None
+    labels = experiment_labels()
+    for tag, text in tagged_blocks(html):
+        if tag in ("h2", "h3"):
+            current = text if text.lower().startswith("experiment") else None
+            if current:
+                found[current] = {}
+        elif current is not None and tag == "li":
+            for label in labels:
+                if text.startswith(label + ":"):
+                    found[current][label] = (text.strip(), text[len(label) + 1:].strip())
+    return found

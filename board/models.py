@@ -84,7 +84,10 @@ class Item(models.Model):
     def open_document(self):
         doc = Document.objects.filter(item=self, phase=self.phase, cycle=self.cycle).first()
         if doc is None:
-            before = Document.objects.filter(item=self, phase=ORIENT, cycle=self.cycle).first()
+            # The phase before, in this loop; for Observe, the Act that ended the loop before.
+            i = PHASE_ORDER.index(self.phase)
+            cycle = self.cycle - 1 if i == 0 else self.cycle
+            before = Document.objects.filter(item=self, phase=PHASE_ORDER[i - 1], cycle=cycle).first()
             doc = Document.objects.create(item=self, phase=self.phase, cycle=self.cycle,
                                           body=document_template(self.phase, before))
         return doc

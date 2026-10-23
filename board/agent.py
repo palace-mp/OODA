@@ -10,11 +10,10 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from html import unescape
 from pathlib import Path
 
 from . import notify
-from .document import GUIDES, experiment_labels, plain_text
+from .document import GUIDES, blocks, experiment_labels, experiments, plain_text, results_heading, section, tagged_blocks
 from .models import Comment, Document, Reply
 
 MODEL = "claude-opus-5-5"
@@ -44,8 +43,12 @@ CRITERIA = {
         "and experiments too big or slow to run soon."
     ),
     "act": (
-        "An action report says what was done and what came of it, concretely enough that the next "
-        "observation can start from it. Point out missing results, dates and what to observe next."
+        "Act runs the experiments designed in Decide and keeps a journal of what happens. The results "
+        "are the input to the next Observe, so each must be written as an observation: what was seen "
+        "and measured, set against the thresholds decided beforehand, without new explanations or "
+        "proposals. Point out experiments from Decide that have no result, results that are judgements "
+        "or conclusions rather than observations, results without a measurement where a threshold was "
+        "set, and journal entries that lack a date."
     ),
 }
 
@@ -56,34 +59,6 @@ class Note:
     quote: str
     comment: str
     replacement: str = ""
-
-
-def tagged_blocks(html):
-    """(tag, text) for each paragraph-like element, the text as the browser's textContent sees it."""
-    out = []
-    for tag, inner in re.findall(r"<(p|h2|h3|li|blockquote)>(.*?)</\1>", html or "", re.S):
-        if re.search(r"<(p|h2|h3|li|blockquote)>", inner):
-            continue  # holds other blocks; those are listed on their own
-        out.append((tag, unescape(re.sub(r"<[^>]+>", "", inner))))
-    return out
-
-
-def blocks(html, headings=True):
-    return [text for tag, text in tagged_blocks(html) if headings or tag not in ("h2", "h3")]
-
-
-def section(html, starts):
-    """The heading starting with one of `starts`, and the text written under it."""
-    heading, text = None, []
-    for tag, value in tagged_blocks(html):
-        if tag in ("h2", "h3"):
-            if heading:
-                break
-            if value.lower().startswith(starts):
-                heading = value
-        elif heading:
-            text.append(value)
-    return heading, " ".join(text).strip()
 
 
 def anchor(html, quote):
@@ -200,26 +175,12 @@ def rule_review(doc, input_doc):
         notes += orient_rules(doc, texts, first, numbers)
     if doc.phase == "decide":
         notes += decide_rules(doc)
+    if doc.phase == "act":
+        notes = act_rules(doc)
     unique = {}
     for note in notes:
         unique.setdefault(note.quote, note)
     return list(unique.values())[:4]
-
-
-def experiments(html):
-    """{heading: {label: (line, value)}} for each experiment block in a Decide document."""
-    found, current = {}, None
-    labels = experiment_labels()
-    for tag, text in tagged_blocks(html):
-        if tag in ("h2", "h3"):
-            current = text if text.lower().startswith("experiment") else None
-            if current:
-                found[current] = {}
-        elif current is not None and tag == "li":
-            for label in labels:
-                if text.startswith(label + ":"):
-                    found[current][label] = (text.strip(), text[len(label) + 1:].strip())
-    return found
 
 
 def decide_rules(doc):
@@ -245,6 +206,45 @@ def decide_rules(doc):
         if value and not re.search(r"\d", value):
             notes.append(Note("comment", line, "Can this threshold be a number, so nobody has to argue about it afterwards?"))
     return notes
+
+
+def act_rules(doc):
+    """Results must read as observations the next loop can start from."""
+    notes = []
+    heading = results_heading()
+    in_results = False
+    for tag, text in tagged_blocks(doc.body):
+        if tag in ("h2", "h3"):
+            in_results = text.startswith(heading)
+            continue
+        if not in_results or not text.strip():
+            continue
+        label, _sep, result = text.partition(":") if tag == "li" and ":" in text else ("", "", text)
+        result = result.strip()
+        if label and not result:
+            notes.append(Note("comment", text.strip(), (
+                "What came of this experiment? Write it as an observation: what was measured, "
+                "next to the threshold from Decide.")))
+        elif JUDGEMENT.search(result):
+            notes.append(Note("comment", result, (
+                "This reads as a conclusion. What was actually seen? The next Observe starts from "
+                "this line, so keep it to what happened and the numbers.")))
+        elif not re.search(r"\d", result):
+            notes.append(Note("comment", result, "Is there a measurement to go with this, to compare with the threshold?"))
+    journal, written = section(doc.body, (_journal().lower(),))
+    if journal and not written:
+        notes.append(Note("comment", journal, (
+            "A few dated lines as the experiments run make the results easier to trust and to repeat.")))
+    unique = {}
+    for note in notes:
+        unique.setdefault(note.quote, note)
+    return list(unique.values())[:4]
+
+
+def _journal():
+    from django.utils.translation import gettext
+
+    return gettext("Journal")
 
 
 def orient_rules(doc, texts, first, numbers):

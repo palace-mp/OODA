@@ -321,6 +321,7 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .toolbar.hint { position: static; border: 0; padding: 0; }
 .toolbar button { border: 0; min-width: 2rem; padding: 0.3rem 0.45rem; color: var(--ink-2); font: 0.9rem var(--serif); border-radius: 3px; }
 .toolbar button:hover { background: var(--sheet); color: var(--ink); }
+.toolbar button.journal-btn { font: 0.8rem var(--sans); }
 .toolbar .sep { width: 1px; height: 1.1rem; background: var(--rule); margin: 0 0.4rem; }
 .save-state { margin-left: auto; }
 .save-state.error { color: var(--accent); }

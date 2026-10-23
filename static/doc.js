@@ -457,6 +457,34 @@
       saving = null;
     }
 
+    // Typing right after a label like "How we measure:" writes the answer, not more label.
+    // Browsers otherwise put the caret inside the bold label and keep typing in bold.
+    doc.addEventListener("beforeinput", (e) => {
+      if (e.inputType !== "insertText" || !e.data) return;
+      const sel = window.getSelection();
+      if (!sel.isCollapsed || !sel.rangeCount) return;
+      const node = sel.anchorNode;
+      const li = node && (node.nodeType === 1 ? node : node.parentElement).closest("li");
+      const label = li && li.firstChild && li.firstChild.nodeName === "STRONG" ? li.firstChild : null;
+      if (!label || !label.textContent.trim().endsWith(":")) return;
+      const rest = document.createRange();
+      rest.setStart(node, sel.anchorOffset);
+      rest.setEnd(label, label.childNodes.length);
+      const inLabelAtEnd = label.contains(node) && !rest.toString().length;
+      const justAfter = node.nodeType === 3 && node.previousSibling === label && !node.nodeValue.slice(0, sel.anchorOffset).trim();
+      if (!inLabelAtEnd && !justAfter) return;
+      e.preventDefault();
+      let after = label.nextSibling;
+      if (!after || after.nodeType !== 3) {
+        after = document.createTextNode("");
+        label.after(after);
+      }
+      const existing = after.nodeValue.replace(/^\s+/, "");
+      after.nodeValue = " " + e.data + (existing ? existing : "");
+      sel.collapse(after, 1 + e.data.length);
+      changed();
+    });
+
     doc.addEventListener("input", changed);
     title.addEventListener("input", changed);
     title.addEventListener("keydown", (e) => {
@@ -491,6 +519,13 @@
         const tag = button.dataset.block;
         const same = current && current.tagName.toLowerCase() === tag;
         document.execCommand("formatBlock", false, same ? "<p>" : `<${tag}>`);
+      } else if ("journal" in button.dataset) {
+        // A dated line for the journal: "23 Oct, 14:20 · Name — "
+        const now = new Date();
+        const when = `${now.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+        const stamp = document.createElement("strong");
+        stamp.textContent = `${when} · ${button.dataset.who}`;
+        document.execCommand("insertHTML", false, `${stamp.outerHTML} —&nbsp;`);
       } else if ("link" in button.dataset) {
         const url = window.prompt(button.dataset.prompt, "https://");
         if (url && url !== "https://") document.execCommand("createLink", false, url);
