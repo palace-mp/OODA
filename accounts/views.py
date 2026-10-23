@@ -152,6 +152,10 @@ def publish(request):
         workspace.is_public = False
     elif action == "new-link":
         workspace.public_token = make_token()
+    elif action == "open":
+        workspace.open_to_observations = True
+    elif action == "close":
+        workspace.open_to_observations = False
     workspace.save()
     return redirect(reverse("settings") + "#public")
 

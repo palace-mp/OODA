@@ -67,8 +67,20 @@
       {% endif %}
     </div>
 
+    {% if public and workspace.open_to_observations and not item.is_done %}
+    <details class="chip public-observe">
+      <summary>+ {% translate "Seen something we should know? Tell us" %}</summary>
+      <form method="post" action="{% url 'public_observe' token item.number %}" class="stack">{% csrf_token %}
+        <label class="field">{% translate "What did you see?" %}<textarea name="body" rows="3" required></textarea></label>
+        <label class="field">{% translate "Your name (optional)" %}<input name="name" maxlength="80"></label>
+        <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+        <div class="row"><button class="primary">{% translate "Send" %}</button></div>
+      </form>
+    </details>
+    {% endif %}
     <p class="story-link"><a href="{% if public %}{% url 'public_story' token item.number %}{% else %}{% url 'board:story' item.number %}{% endif %}">{% translate "Read the story so far" %} →</a></p>
     <dl class="facts-line">
+      {% if voices <= 1 and not public %}<div class="one-voice"><dt>{% translate "Voices" %}</dt><dd title="{% translate 'A loop that hears only itself drifts. Invite someone, or open it to visitors.' %}">{% translate "only one so far" %}</dd></div>{% endif %}
       <div><dt>{% translate "Created by" %}</dt><dd>{{ item.created_by.name|default:"—" }} <span class="meta">{{ item.created_at|date:"j M Y" }}</span></dd></div>
       <div><dt>{% translate "Assigned" %}</dt><dd>{% for p in item.assignees.all %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
       <div><dt>{% translate "Deadline" %}</dt><dd class="{% if item.is_overdue %}overdue{% endif %}">{{ item.deadline|date:"j M Y"|default:"—" }}</dd></div>

@@ -238,6 +238,7 @@ def item_page_context(item, doc=None, public=False):
         "closed_threads": [c for c in threads if not c.is_open],
         "thread_total": len(threads),
         "outcomes": outcomes_for(doc),
+        "voices": voices(item),
         "kept_readings": readings_before(doc),
         "intent": intent_from(item.parent),
         "lenses": library.suggestions(doc) if doc.phase == ORIENT else [],
@@ -271,6 +272,16 @@ def intent_from(parent):
         if found:
             return {"item": parent, "doc": d, "html": found}
     return {"item": parent, "doc": None}
+
+
+def voices(item):
+    """How many people, besides agents, have taken part: a closed loop with one voice decays."""
+    people = {item.created_by_id}
+    people |= set(item.comments.filter(author__is_agent=False).values_list("author_id", flat=True))
+    people |= set(Reply.objects.filter(comment__item=item, author__is_agent=False).values_list("author_id", flat=True))
+    people |= set(item.entries.filter(author__isnull=False).values_list("author_id", flat=True))
+    people.discard(None)
+    return len(people) + item.entries.filter(from_outside=True).count()
 
 
 def readings_before(doc):
@@ -998,6 +1009,26 @@ def public_index(request, token):
     context = board_context(request, workspace, items, filters, public=True)
     context.update({"workspace": workspace, "token": token})
     return render(request, "board/index.html", context)
+
+
+@require_POST
+def public_observe(request, token, number):
+    """A visitor to a published board notes what they see. It waits on the item like any observation."""
+    workspace = public_workspace(token)
+    if not workspace.open_to_observations:
+        raise Http404
+    item = get_object_or_404(Item, workspace=workspace, number=number, merged_into=None)
+    body = request.POST.get("body", "").strip()[:4000]
+    waiting = Entry.objects.filter(workspace=workspace, from_outside=True, handled_at__isnull=True).count()
+    # "website" is a field people never see; only robots fill it in.
+    if body and not request.POST.get("website") and waiting < 100:
+        Entry.objects.create(workspace=workspace, item=item, kind=Entry.OBSERVATION, body=body,
+                             cycle=item.cycle, from_outside=True,
+                             outside_name=request.POST.get("name", "").strip()[:80])
+        editors = list(item.assignees.all()) or ([item.created_by] if item.created_by else [])
+        notify.observed(item, editors, None, body)
+        messages.success(request, _("Thank you. Your observation reached the people working on this."))
+    return redirect("public_item", token=token, number=item.number)
 
 
 def public_story(request, token, number):

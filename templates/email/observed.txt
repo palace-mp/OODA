@@ -1,4 +1,4 @@
-{% load i18n %}{% autoescape off %}{% blocktranslate with who=by.name n=item.number t=item.title phase=item.get_phase_display %}{{ who }} noted an observation on #{{ n }} {{ t }}, which is in {{ phase }}:{% endblocktranslate %}
+{% load i18n %}{% autoescape off %}{% translate "A visitor to the published board" as visitor %}{% blocktranslate with who=by.name|default:visitor n=item.number t=item.title phase=item.get_phase_display %}{{ who }} noted an observation on #{{ n }} {{ t }}, which is in {{ phase }}:{% endblocktranslate %}
 
 {{ text }}
 

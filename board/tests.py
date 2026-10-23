@@ -1025,3 +1025,31 @@ class StoryTests(Base):
         self.assertContains(r, "The invite step scares solo users.")
         self.assertContains(r, "Skipping the invite helps.")
         self.assertContains(r, "Support says solo users never reach the invite step.")
+
+
+class OpennessTests(Base):
+    def test_visitors_can_send_observations_when_the_board_is_open(self):
+        it = self.item("Pricing")
+        it.assignees.add(self.bo)
+        self.ws.is_public = True
+        self.ws.save()
+        url = reverse("public_observe", args=[self.ws.public_token, it.number])
+        self.client.logout()
+        self.assertEqual(self.client.post(url, {"body": "Prices look high"}).status_code, 404)
+        self.ws.open_to_observations = True
+        self.ws.save()
+        self.client.post(url, {"body": "Your competitor halved prices today.", "name": "Kim"})
+        self.client.post(url, {"body": "spam", "website": "http://spam"})
+        e = it.pending_observations().get()
+        self.assertTrue(e.from_outside)
+        self.assertEqual(e.outside_name, "Kim")
+        self.assertEqual([m.to for m in mail.outbox], [["bo@example.com"]])
+        self.assertIn("A visitor to the published board", mail.outbox[0].body)
+        self.client.force_login(self.anna)
+        self.assertContains(self.client.get(it.get_absolute_url()), "From outside")
+
+    def test_a_single_voice_is_noticed(self):
+        it = self.item("Pricing")
+        self.assertContains(self.client.get(it.get_absolute_url()), "only one so far")
+        Comment.objects.create(item=it, document=it.document, body="hm", author=self.bo)
+        self.assertNotContains(self.client.get(it.get_absolute_url()), "only one so far")

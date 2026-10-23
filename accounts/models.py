@@ -59,6 +59,8 @@ class Workspace(models.Model):
     name = models.CharField(_("name"), max_length=80)
     is_public = models.BooleanField(_("published"), default=False)
     public_token = models.CharField(max_length=64, default=make_token, unique=True)
+    # Visitors to the published board may send observations. Open systems stay alive.
+    open_to_observations = models.BooleanField(_("visitors can send observations"), default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
