@@ -29,6 +29,30 @@ def defaults():
          _("How does this look when we live it rather than observe it: the emotions, the relationships?")),
         (_("Missing voices"), "",
          _("Whose story is this not, and what would they see?")),
+    ] + later()
+
+
+def later():
+    """Lenses added after the first ones; boards that already have a library get them too."""
+    return [
+        (_("Cynefin"), "Dave Snowden",
+         _("Is this clear, complicated, complex or chaotic, and are we acting as if it were?")),
+        (_("Black swans"), "Nassim Taleb",
+         _("What rare event would change everything here, and are we exposed to it or positioned for it?")),
+        (_("Antifragility"), "Nassim Taleb",
+         _("What would get stronger if this went wrong?")),
+        (_("Dragon kings"), "Didier Sornette",
+         _("Is there an extreme outcome building up that the normal pattern hides?")),
+        (_("Counter-narrative"), "Lawrence Freedman, Robert McKee",
+         _("Which story does everyone here believe, and what story would challenge it?")),
+        (_("Optionality"), "",
+         _("Which move keeps the most doors open?")),
+        (_("Epistemic maturity"), "",
+         _("Are we looking for the one right answer, or holding several that are true at once?")),
+        (_("Hypocognition"), "",
+         _("What can't we think about here because we have no words for it yet?")),
+        (_("Impact over intention"), "",
+         _("What actually moved: in behaviour, in the market, in the team? Not what we did.")),
     ]
 
 

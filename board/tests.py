@@ -1087,3 +1087,10 @@ class TempoTrustTests(Base):
         self.assertEqual(r.context["handled_total"], 3)
         self.assertEqual(r.context["tested"]["failed"], 1)  # risks are not tested assumptions
         self.assertContains(r, "You have handled the unexpected before")
+
+
+class MoreLensTests(Base):
+    def test_new_boards_get_the_later_lenses_too(self):
+        self.client.get(reverse("board:library"))
+        names = set(Lens.objects.filter(workspace=self.ws).values_list("name", flat=True))
+        self.assertTrue({"Cynefin", "Antifragility", "Optionality", "Impact over intention"} <= names)
