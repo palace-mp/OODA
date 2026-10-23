@@ -73,15 +73,21 @@ def workspace_users(workspace):
 class EntryForm(forms.ModelForm):
     class Meta:
         model = Entry
-        fields = ["kind", "body"]
+        fields = ["kind", "signal", "body"]
         widgets = {
             "kind": forms.RadioSelect,
+            "signal": forms.RadioSelect,
             "body": forms.Textarea(attrs={"rows": 3, "placeholder": _("What did you see, think, decide or do?")}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["kind"].choices = Entry.WRITABLE_KINDS
+        self.fields["signal"].required = False
+        self.fields["signal"].initial = Entry.SEEN
+
+    def clean_signal(self):
+        return self.cleaned_data.get("signal") or Entry.SEEN
 
 
 class LinkForm(forms.ModelForm):

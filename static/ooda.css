@@ -334,7 +334,12 @@ li.done > a, a.done-ref { color: var(--muted); text-decoration: line-through; }
 .pending-obs .meta { margin: 0.3rem 0 0; display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center; }
 .obs-body { white-space: pre-wrap; }
 .observe-now { display: flex; gap: 0.6rem; align-items: baseline; margin-top: 0.6rem; }
-.observe-now input { flex: 1; font-size: 0.95rem; }
+.observe-now input[name=body] { flex: 1; font-size: 0.95rem; }
+.observe-now { flex-wrap: wrap; }
+.signals { display: inline-flex; gap: 0.7rem; font: 0.78rem var(--sans); color: var(--muted); align-items: center; }
+.signals label { display: inline-flex; gap: 0.25rem; align-items: center; cursor: pointer; }
+.signal { font: 600 0.62rem var(--sans); letter-spacing: 0.08em; text-transform: uppercase; margin-right: 0.5rem; color: var(--decide); }
+.signal.s-felt { color: var(--orient); }
 .observe-now button { padding: 0.2rem 0.7rem; font-size: 0.8rem; }
 
 /* Act: the outcome of each experiment */

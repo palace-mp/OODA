@@ -752,3 +752,33 @@ class LoopFeedbackTests(Base):
         self.assertGreater(r.context["notice_to_act"], timedelta(hours=3))
         self.assertEqual(r.context["tested"]["failed"], 1)
         self.assertEqual(r.context["stale"][0]["item"], self.it)
+
+
+class FeltSignalTests(Base):
+    def test_feelings_are_not_asked_for_numbers(self):
+        from .agent import rule_review
+
+        item = self.item("Mood", body="<h3>What happened?</h3><p>The team feels uneasy about the new rota.</p>")
+        quotes = [n.quote for n in rule_review(item.document, None)]
+        self.assertNotIn("The team feels uneasy about the new rota.", quotes)
+
+    def test_orient_is_asked_to_articulate_a_feeling_from_observe(self):
+        from .agent import rule_review
+        from .document import felt_heading
+
+        item = self.item("Mood", body=f"<h3>{felt_heading()}</h3><p>Something is off on Mondays.</p>")
+        item.advance(self.anna)
+        doc = item.document
+        doc.body = "<p>Absence was 4% compared to 3% last year according to HR.</p>" + doc.body
+        doc.save()
+        notes = rule_review(doc, doc.previous())
+        self.assertIn("Something is off on Mondays.", notes[0].comment)
+
+    def test_a_felt_observation_is_labelled_when_carried_into_the_next_loop(self):
+        item = self.item("Mood")
+        self.client.post(reverse("board:observe_now", args=[item.number]), {"body": "Heavy mood", "signal": "felt"})
+        self.assertEqual(item.pending_observations().get().signal, "felt")
+        for _ in range(4):
+            item.advance(self.anna)
+        self.assertIn("<li><strong>Felt:</strong> Heavy mood", item.document.body)
+        self.assertIn("<h3>What if it is the other way around?</h3>", item.documents.get(phase="orient", cycle=1).body)

@@ -10,6 +10,8 @@
     {% csrf_token %}
     <div class="kinds">{% for radio in entry_form.kind %}{{ radio.tag }}<label for="{{ radio.id_for_label }}">{{ radio.choice_label }}</label>{% endfor %}</div>
     {{ entry_form.body }}
+    <p class="signals meta">{% translate "How do we know?" %}
+      {% for radio in entry_form.signal %}<label>{{ radio.tag }} {{ radio.choice_label }}</label>{% endfor %}</p>
     <div class="row"><button class="primary">{% translate "Write it down" %}</button></div>
   </form>
 
@@ -17,7 +19,7 @@
   <ol class="inbox">
     {% for entry in entries %}
     <li class="entry k-{{ entry.kind }}">
-      <p class="entry-kind">{{ entry.get_kind_display }}</p>
+      <p class="entry-kind">{{ entry.get_kind_display }}{% if entry.signal != "seen" %} · <span class="signal s-{{ entry.signal }}">{{ entry.get_signal_display }}</span>{% endif %}</p>
       <div class="entry-body">{{ entry.body|rich:base }}</div>
       <p class="meta">{{ entry.author.name|default:_("someone") }} · {{ entry.created_at|date:"j M, H:i" }}</p>
       <div class="file-actions">

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import notify
 from .document import (
-    GUIDES, assumptions_heading, blocks, experiment_labels, experiments, other_eyes_heading, plain_text,
+    GUIDES, assumptions_heading, blocks, felt_heading, inversion_heading, experiment_labels, experiments, other_eyes_heading, plain_text,
     results_heading, section, surprise_heading, tagged_blocks,
 )
 from .models import Comment, Document, Reply
@@ -25,7 +25,9 @@ MODEL = "claude-opus-5-5"
 CRITERIA = {
     "observe": (
         "An observation states what was seen, as it is: what happened, where and when, how often, "
-        "and how we know (a source, a count, who saw it). It does not explain, judge or propose. "
+        "and how we know (a source, a count, who saw it, or a feeling not yet put into words: unease and "
+        "gut feeling are valid signals and must not be dismissed or forced into numbers). It does not "
+        "explain, judge or propose. "
         "Observation keeps the organisation open: the most valuable observations are the ones that go "
         "against the current picture or plan, and noticing what matters beats collecting more. "
         "Point out conclusions, proposals, vague quantities, missing sources, and observations that only "
@@ -153,6 +155,9 @@ def claude_review(doc, input_doc):
 JUDGEMENT = re.compile(
     r"\b(should|must|need to|needs to|have to|has to|we fix|solve|because|obviously|probably|I think|"
     r"bör|måste|borde|behöver|eftersom|troligen|uppenbarligen|jag tror)\b", re.I)
+FEELING = re.compile(
+    r"\b(feel|feels|felt|feeling|gut|uneasy|unease|stress|stressed|worried|frustrat\w*|"
+    r"känns|känsla|magkänsla|oro|orolig|stressad|frustrerad)\b", re.I)
 VAGUE = re.compile(r"\b(often|many|some|several|a lot|lots of|always|never|ofta|många|några|flera|alltid|aldrig)\b", re.I)
 
 
@@ -179,7 +184,9 @@ def rule_review(doc, input_doc):
                 notes.append(Note("comment", word, f"How {word.lower()} exactly? A number or a period makes this easier to act on."))
     first = next((t for t in texts if not t.endswith("?")), None)
     numbers = re.search(r"\d", " ".join(texts))
-    if doc.phase == "observe" and first and not numbers:
+    felt, felt_text = section(doc.body, (felt_heading().lower(),))
+    feeling = FEELING.search(" ".join(texts))
+    if doc.phase == "observe" and first and not numbers and not feeling and not felt_text:
         notes.append(Note("comment", first, "Is there a number, a date or a source to go with this? How do we know?"))
     if doc.phase == "observe":
         heading, written = section(doc.body, (surprise_heading().lower(),))
@@ -188,6 +195,12 @@ def rule_review(doc, input_doc):
                 "What here goes against what we expected? That is often the observation that matters most.")))
     if doc.phase == "orient" and first:
         notes += orient_rules(doc, texts, first, numbers)
+        if input_doc is not None and input_doc.phase == "observe":
+            _h, felt_before = section(input_doc.body, (felt_heading().lower(),))
+            if felt_before:
+                notes.insert(0, Note("comment", first, (
+                    f"Observe noted a feeling: “{felt_before[:120]}”. Feelings are signals before they "
+                    "have words. What might this one be telling us about the context?")))
     if doc.phase == "decide":
         notes += decide_rules(doc)
     if doc.phase == "act":
@@ -277,19 +290,21 @@ def orient_rules(doc, texts, first, numbers):
                 "Compared to what? An earlier period, a baseline or peers makes this number comparable.")))
     if "href=" not in (doc.body or "") and not SOURCE.search(joined):
         notes.append(Note("comment", first, "Where does this come from? A link or a named source lets others check it."))
+    hypotheses, written = section(doc.body, ("hypotes", "hypothes"))
+    if hypotheses and not written:
+        notes.append(Note("comment", hypotheses, (
+            "Which explanations could Decide design an experiment around? Even one testable hypothesis helps.")))
     for heading_text, question in (
         (assumptions_heading(), "Which of today's assumptions does this observation shake? Naming them is "
                                 "the first step in taking the old picture apart."),
         (other_eyes_heading(), "How would an engineer, a trader or a nurse read this? Borrowing another "
                                "field's model often shows what ours hides."),
+        (inversion_heading(), "Try turning the main explanation around. If it still makes sense the other "
+                              "way, we don't know as much as we think."),
     ):
         heading, written = section(doc.body, (heading_text.lower(),))
         if heading and not written:
             notes.append(Note("comment", heading, question))
-    hypotheses, written = section(doc.body, ("hypotes", "hypothes"))
-    if hypotheses and not written:
-        notes.append(Note("comment", hypotheses, (
-            "Which explanations could Decide design an experiment around? Even one testable hypothesis helps.")))
     return notes
 
 

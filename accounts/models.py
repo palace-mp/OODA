@@ -36,6 +36,8 @@ class User(AbstractUser):
     email = models.EmailField(_("e-mail"), unique=True)
     name = models.CharField(_("name"), max_length=80)
     is_agent = models.BooleanField(_("AI agent"), default=False)
+    # For agents: the angle it reviews from, see board/agent.py LENSES.
+    agent_lens = models.CharField(_("lens"), max_length=20, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]

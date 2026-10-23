@@ -248,6 +248,10 @@ class Entry(models.Model):
     handled_at = models.DateTimeField(null=True, blank=True)
     handled_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     handled_how = models.CharField(max_length=12, blank=True)
+    # How we know: measured, seen with our own eyes, or felt before it has words.
+    MEASURED, SEEN, FELT = "measured", "seen", "felt"
+    SIGNALS = [(SEEN, _("Seen")), (MEASURED, _("Measured")), (FELT, _("Felt"))]
+    signal = models.CharField(_("how we know"), max_length=10, choices=SIGNALS, default=SEEN)
 
     class Meta:
         ordering = ["created_at"]
@@ -361,8 +365,10 @@ class Comment(models.Model):
     A suggestion proposes `replacement` in place of `quote`.
     """
 
-    COMMENT, SUGGESTION = "comment", "suggestion"
-    KINDS = [(COMMENT, _("Comment")), (SUGGESTION, _("Suggestion"))]
+    COMMENT, SUGGESTION, READING = "comment", "suggestion", "reading"
+    # A reading is another way of seeing the passage. It isn't resolved away: it stays
+    # beside the document and is carried into the next phase as input.
+    KINDS = [(COMMENT, _("Comment")), (SUGGESTION, _("Suggestion")), (READING, _("Another reading"))]
     OPEN, RESOLVED, ACCEPTED, REJECTED = "open", "resolved", "accepted", "rejected"
     STATUSES = [(OPEN, _("Open")), (RESOLVED, _("Resolved")), (ACCEPTED, _("Accepted")), (REJECTED, _("Rejected"))]
 
@@ -389,6 +395,10 @@ class Comment(models.Model):
     @property
     def is_suggestion(self):
         return self.kind == self.SUGGESTION
+
+    @property
+    def is_reading(self):
+        return self.kind == self.READING
 
     def close(self, status, by):
         self.status = status
@@ -423,3 +433,21 @@ class Verdict(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["item", "cycle", "experiment"], name="one_verdict")]
+
+
+class Lens(models.Model):
+    """A mental model, book or way of seeing that Orient can borrow from."""
+
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="lenses")
+    name = models.CharField(_("name"), max_length=120)
+    source = models.CharField(_("from"), max_length=160, blank=True)
+    question = models.CharField(_("the question it asks"), max_length=300)
+    note = models.TextField(_("note"), blank=True)
+    added_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name

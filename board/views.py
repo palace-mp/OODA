@@ -289,8 +289,9 @@ def observe_now(request, number):
         return redirect_to
     body = request.POST.get("body", "").strip()
     if body:
+        signal = request.POST.get("signal") if request.POST.get("signal") in dict(Entry.SIGNALS) else Entry.SEEN
         Entry.objects.create(workspace=request.workspace, item=item, kind=Entry.OBSERVATION, body=body,
-                             author=request.user, cycle=item.cycle)
+                             author=request.user, cycle=item.cycle, signal=signal)
         editors = list(item.assignees.all()) or ([item.created_by] if item.created_by else [])
         notify.observed(item, editors, request.user, body)
     return redirect(item.get_absolute_url() + "#observations")

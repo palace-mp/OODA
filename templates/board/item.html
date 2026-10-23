@@ -123,7 +123,7 @@
       {% for e in pending %}
       <li class="pending-obs">
         <div class="obs-body">{{ e.body|rich }}</div>
-        <p class="meta">{% if e.kind != "observation" %}{{ e.get_kind_display }} · {% endif %}{{ e.author.name|default:_("someone") }} · {{ e.created_at|date:"j M, H:i" }}
+        <p class="meta">{% if e.signal != "seen" %}<span class="signal s-{{ e.signal }}">{{ e.get_signal_display }}</span>{% endif %}{% if e.kind != "observation" %}{{ e.get_kind_display }} · {% endif %}{{ e.author.name|default:_("someone") }} · {{ e.created_at|date:"j M, H:i" }}
         {% if can_change %}
           {% if item.phase == "decide" or item.phase == "act" %}
           <form method="post" action="{% url 'board:reorient' item.number %}" class="inline">{% csrf_token %}
@@ -148,6 +148,11 @@
     <form method="post" action="{% url 'board:observe_now' item.number %}" class="observe-now">{% csrf_token %}
       <input name="body" required autocomplete="off" aria-label="{% translate 'New observation' %}"
         placeholder="{% translate 'Noticed something? Note an observation — whatever phase this is in…' %}">
+      <span class="signals" role="radiogroup" aria-label="{% translate 'How do we know?' %}">
+        <label><input type="radio" name="signal" value="seen" checked> {% translate "Seen" %}</label>
+        <label><input type="radio" name="signal" value="measured"> {% translate "Measured" %}</label>
+        <label title="{% translate 'A feeling before it has words: unease, gut feeling' %}"><input type="radio" name="signal" value="felt"> {% translate "Felt" %}</label>
+      </span>
       <button>{% translate "Note" %}</button>
     </form>
     {% endif %}

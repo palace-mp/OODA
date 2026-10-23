@@ -82,6 +82,7 @@ def template(phase, previous=None):
     questions = {
         "observe": [
             _("What happened?"), _("Where and when?"), _("How often, how many?"), _("How do we know?"),
+            felt_heading(),
             surprise_heading(),
         ],
         "orient": [
@@ -92,6 +93,8 @@ def template(phase, previous=None):
             _("Compared to what? Baseline, earlier periods, peers"),
             assumptions_heading(),
             other_eyes_heading(),
+            inversion_heading(),
+            missing_voices_heading(),
             new_picture_heading(),
             _("Hypotheses: what could explain it, and how could we test it?"),
             _("What don't we know yet?"),
@@ -108,6 +111,18 @@ def template(phase, previous=None):
         if found:
             html = html.replace("<p><br></p>", found, 1)
     return html
+
+
+def felt_heading():
+    return _("What does it feel like? Unease, gut feeling, what we can't put into words yet")
+
+
+def inversion_heading():
+    return _("What if it is the other way around?")
+
+
+def missing_voices_heading():
+    return _("Whose perspective is missing? Who is affected but not heard?")
 
 
 def surprise_heading():
@@ -131,7 +146,8 @@ def observations_list(entries):
     lines = []
     for e in entries:
         who = f" <em>— {escape(e.author.name)}</em>" if e.author else ""
-        lines.append(f"<li>{escape(e.body).replace(chr(10), '<br>')}{who}</li>")
+        how = f"<strong>{escape(str(e.get_signal_display()))}:</strong> " if e.signal != e.SEEN else ""
+        lines.append(f"<li>{how}{escape(e.body).replace(chr(10), '<br>')}{who}</li>")
     return f"<ul>{''.join(lines)}</ul>" if lines else ""
 
 
