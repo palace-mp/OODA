@@ -295,6 +295,9 @@ class Entry(models.Model):
     MEASURED, SEEN, FELT = "measured", "seen", "felt"
     SIGNALS = [(SEEN, _("Seen")), (MEASURED, _("Measured")), (FELT, _("Felt"))]
     signal = models.CharField(_("how we know"), max_length=10, choices=SIGNALS, default=SEEN)
+    # Sent by a visitor to a published board, who may leave a name but has no user.
+    outside_name = models.CharField(max_length=80, blank=True)
+    from_outside = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["created_at"]

@@ -512,7 +512,8 @@
     });
     toolbar.addEventListener("click", (e) => {
       const button = e.target.closest("button");
-      if (!button || !doc.contains(window.getSelection().anchorNode)) return;
+      if (!button) return;
+      if (!("clearQuestions" in button.dataset) && !doc.contains(window.getSelection().anchorNode)) return;
       if (button.dataset.cmd) {
         document.execCommand(button.dataset.cmd);
       } else if (button.dataset.block) {
@@ -520,6 +521,17 @@
         const tag = button.dataset.block;
         const same = current && current.tagName.toLowerCase() === tag;
         document.execCommand("formatBlock", false, same ? "<p>" : `<${tag}>`);
+      } else if ("clearQuestions" in button.dataset) {
+        // Headings with nothing written under them go; anything written stays.
+        $$("h2, h3", doc).forEach((h) => {
+          const under = [];
+          for (let n = h.nextElementSibling; n && !/^H[23]$/.test(n.tagName); n = n.nextElementSibling) under.push(n);
+          if (!under.some((n) => n.textContent.trim())) {
+            under.forEach((n) => n.remove());
+            h.remove();
+          }
+        });
+        if (!doc.textContent.trim()) doc.innerHTML = "<p><br></p>";
       } else if ("journal" in button.dataset) {
         // A dated line for the journal: "23 Oct, 14:20 · Name — "
         const now = new Date();

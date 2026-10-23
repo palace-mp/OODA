@@ -213,14 +213,19 @@ def item_page_context(item, doc=None, public=False):
     for d in item.documents_in_order():
         loops.setdefault(d.cycle, []).append(d)
     open_suggestions = current.comments.filter(kind=Comment.SUGGESTION, status=Comment.OPEN).count()
+    # Said quietly, never in the way: moving on is always allowed.
     if open_suggestions:
         warning = ngettext(
             "%(n)s suggestion is still open. Move on anyway?",
             "%(n)s suggestions are still open. Move on anyway?", open_suggestions) % {"n": open_suggestions}
+        note = ngettext("%(n)s open suggestion", "%(n)s open suggestions", open_suggestions) % {"n": open_suggestions}
     elif current.status == Document.DRAFT and document.has_content(current.body):
         warning = _("This document hasn't been submitted for review. Move on anyway?")
+        note = _("not reviewed")
     else:
-        warning = ""
+        warning = note = ""
+    ai_accepted = doc.comments.filter(kind=Comment.SUGGESTION, status=Comment.ACCEPTED, author__is_agent=True).count()
+    own_accepted = doc.comments.filter(kind=Comment.SUGGESTION, status=Comment.ACCEPTED, author__is_agent=False).count()
     return {
         "item": item,
         "doc": doc,
@@ -241,6 +246,8 @@ def item_page_context(item, doc=None, public=False):
         "reoriented": next((s for s in reversed(spans) if s.reason and s.phase == doc.phase
                             and s.cycle == doc.cycle), None),
         "next_warning": warning,
+        "next_note": note,
+        "ai_share": ai_accepted if ai_accepted >= 2 and ai_accepted >= own_accepted else 0,
         "children": item.children.filter(merged_into=None).order_by("is_done", "number"),
         "merged": item.merged.all(),
         "blocks": item.blocks.filter(is_done=False),

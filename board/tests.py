@@ -415,7 +415,7 @@ class PhaseDocumentTests(Base):
         self.assertNotContains(r, 'contenteditable="true"')
         self.assertNotContains(r, 'id="composer"')
         r = self.client.get(item.get_absolute_url())
-        self.assertContains(r, "Input: the Observe document")
+        self.assertContains(r, "Input: Observe, loop 1")
         self.client.post(reverse("board:comment", args=[item.number]), {"quote": "x", "body": "hi"})
         self.assertEqual(Comment.objects.get().document, item.document)
 
@@ -808,7 +808,7 @@ class PerspectiveTests(Base):
                                body="They succeed fast and don't need us.", author=self.bo)
         self.it.advance(self.anna)
         r = self.client.get(self.it.get_absolute_url())
-        self.assertContains(r, "Other readings kept from Observe")
+        self.assertContains(r, "1 other reading kept")
         self.assertContains(r, "They succeed fast and don")
 
     def lens_agent(self, lens):
@@ -890,7 +890,7 @@ class NestedLoopTests(Base):
                                 "<li><strong>Hypothesis:</strong> An EU host halves latency.</li>", 1)
         d.save()
         r = self.client.get(self.child.get_absolute_url())
-        self.assertContains(r, "Intent from the loop above: #1 Move hosting")
+        self.assertContains(r, "Intent from #1")
         self.assertContains(r, "An EU host halves latency.")
 
     def test_board_filters_by_level(self):

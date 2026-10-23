@@ -45,7 +45,7 @@
         </form>
         {% endif %}
         <form method="post" action="{% url 'board:phase' item.number %}">{% csrf_token %}
-          <button name="phase" value="next" class="primary" {% if next_warning %}data-confirm="{{ next_warning }}"{% endif %}>
+          <button name="phase" value="next" class="primary" {% if next_warning %}title="{{ next_warning }}"{% endif %}>
             {% if item.phase == "act" %}{% translate "Observe the result" %} ↻{% else %}{% translate "Next phase" %} →{% endif %}
           </button>
         </form>
@@ -104,6 +104,7 @@
   <p class="guide">
     <span class="phase p-{{ doc.phase }}">{{ doc.get_phase_display }}</span>
     <span class="doc-status s-{{ doc.status }}">{{ doc.get_status_display }}{% if doc.status == "review" and doc.submitted_by %} · {% blocktranslate with who=doc.submitted_by.name %}asked by {{ who }}{% endblocktranslate %}{% endif %}</span>
+    {% if next_note and is_current %}<span class="doc-status">· {{ next_note }}</span>{% endif %}
     {% if guide %}<span class="guide-text">{{ guide }}</span>{% endif %}
   </p>
 
@@ -114,16 +115,15 @@
   </p>
   {% endif %}
 
-  {% if is_current and not public %}
-  <section id="observations" class="observations{% if pending %} has-pending{% endif %}">
-    {% if pending %}
+  {% if pending and is_current and not public %}
+  <section id="observations" class="observations has-pending">
     <h2>{% blocktranslate count n=pending|length %}{{ n }} new observation{% plural %}{{ n }} new observations{% endblocktranslate %}
       <span class="meta">— {% translate "does the picture still hold?" %}</span></h2>
     <ul class="plain">
       {% for e in pending %}
       <li class="pending-obs">
         <div class="obs-body">{{ e.body|rich }}</div>
-        <p class="meta">{% if e.signal != "seen" %}<span class="signal s-{{ e.signal }}">{{ e.get_signal_display }}</span>{% endif %}{% if e.kind != "observation" %}{{ e.get_kind_display }} · {% endif %}{{ e.author.name|default:_("someone") }} · {{ e.created_at|date:"j M, H:i" }}
+        <p class="meta">{% if e.signal != "seen" %}<span class="signal s-{{ e.signal }}">{{ e.get_signal_display }}</span>{% endif %}{% if e.from_outside %}<span class="signal s-outside">{% translate "From outside" %}</span>{% endif %}{% if e.kind != "observation" %}{{ e.get_kind_display }} · {% endif %}{{ e.author.name|default:e.outside_name|default:_("someone") }} · {{ e.created_at|date:"j M, H:i" }}
         {% if can_change %}
           {% if item.phase == "decide" or item.phase == "act" %}
           <form method="post" action="{% url 'board:reorient' item.number %}" class="inline">{% csrf_token %}
@@ -143,19 +143,6 @@
       </li>
       {% endfor %}
     </ul>
-    {% endif %}
-    {% if not item.is_done %}
-    <form method="post" action="{% url 'board:observe_now' item.number %}" class="observe-now">{% csrf_token %}
-      <input name="body" required autocomplete="off" aria-label="{% translate 'New observation' %}"
-        placeholder="{% translate 'Noticed something? Note an observation — whatever phase this is in…' %}">
-      <span class="signals" role="radiogroup" aria-label="{% translate 'How do we know?' %}">
-        <label><input type="radio" name="signal" value="seen" checked> {% translate "Seen" %}</label>
-        <label><input type="radio" name="signal" value="measured"> {% translate "Measured" %}</label>
-        <label title="{% translate 'A feeling before it has words: unease, gut feeling' %}"><input type="radio" name="signal" value="felt"> {% translate "Felt" %}</label>
-      </span>
-      <button>{% translate "Note" %}</button>
-    </form>
-    {% endif %}
   </section>
   {% endif %}
 
@@ -186,49 +173,74 @@
   </section>
   {% endif %}
 
-  {% if intent %}
-  <details class="intent">
-    <summary>{% blocktranslate with n=intent.item.number t=intent.item.title %}Intent from the loop above: #{{ n }} {{ t }}{% endblocktranslate %}</summary>
-    {% if intent.html %}<div class="doc input-body">{{ intent.html|safe }}</div>
-    {% elif intent.doc %}<div class="doc input-body">{{ intent.doc.body|tidy }}</div>
-    {% else %}<p class="meta">{% translate "It hasn't set out what it is testing yet." %}</p>{% endif %}
-    <p class="meta">{% translate "This item runs a faster loop inside it. Its results are reported up as observations when a loop is finished." %}
-      <a href="{% item_url intent.item %}">{% translate "Open it" %}</a></p>
-  </details>
-  {% endif %}
+  <div class="context">
+    {% if input_doc %}
+    <details class="chip input-doc"{% if is_current and not doc.body|has_content %} open{% endif %}>
+      <summary>{% blocktranslate with phase=input_doc.get_phase_display n=input_doc.cycle %}Input: {{ phase }}, loop {{ n }}{% endblocktranslate %}</summary>
+      <div class="doc input-body">{{ input_doc.body|tidy }}</div>
+      <p class="meta"><a href="{% document_url input_doc %}">{% translate "Open it with its comments" %}</a></p>
+    </details>
+    {% endif %}
 
-  {% if lenses and is_current %}
-  <aside class="lenses" aria-label="{% translate 'Lenses to try' %}">
-    <h2>{% translate "Try another lens" %} <a class="meta" href="{% url 'board:library' %}">{% translate "the library" %} →</a></h2>
-    <ul class="plain">
-      {% for lens in lenses %}
-      <li><strong>{{ lens.name }}</strong>{% if lens.source %} <span class="meta">{{ lens.source }}</span>{% endif %}
-        <div>{{ lens.question }}</div>
-        {% if can_edit %}<form method="post" action="{% url 'board:use_lens' item.number lens.pk %}" class="inline">{% csrf_token %}<button class="link">{% translate "add the question to the document" %}</button></form>{% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-  </aside>
-  {% endif %}
+    {% if intent %}
+    <details class="chip intent">
+      <summary>{% blocktranslate with n=intent.item.number %}Intent from #{{ n }}{% endblocktranslate %}</summary>
+      <p class="meta">{{ intent.item.title }}</p>
+      {% if intent.html %}<div class="doc input-body">{{ intent.html|safe }}</div>
+      {% elif intent.doc %}<div class="doc input-body">{{ intent.doc.body|tidy }}</div>
+      {% else %}<p class="meta">{% translate "It hasn't set out what it is testing yet." %}</p>{% endif %}
+      <p class="meta">{% translate "This item runs a faster loop inside it. Its results are reported up as observations when a loop is finished." %}
+        <a href="{% item_url intent.item %}">{% translate "Open it" %}</a></p>
+    </details>
+    {% endif %}
 
-  {% if kept_readings %}
-  <section class="kept-readings">
-    <h2>{% blocktranslate with phase=input_doc.get_phase_display %}Other readings kept from {{ phase }}{% endblocktranslate %}</h2>
-    <ul class="plain">
-      {% for r in kept_readings %}
-      <li><blockquote>{{ r.quote|truncatechars:160 }}</blockquote>{{ r.body|rich }} <span class="meta">— {{ r.author.name|default:_("someone") }}{% if r.author.is_agent %} <span class="ai">AI</span>{% endif %}</span></li>
-      {% endfor %}
-    </ul>
-  </section>
-  {% endif %}
+    {% if kept_readings %}
+    <details class="chip kept-readings">
+      <summary>{% blocktranslate count n=kept_readings|length %}{{ n }} other reading kept{% plural %}{{ n }} other readings kept{% endblocktranslate %}</summary>
+      <ul class="plain">
+        {% for r in kept_readings %}
+        <li><blockquote>{{ r.quote|truncatechars:160 }}</blockquote>{{ r.body|rich }} <span class="meta">— {{ r.author.name|default:_("someone") }}{% if r.author.is_agent %} <span class="ai">AI</span>{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
 
-  {% if input_doc %}
-  <details class="input-doc"{% if is_current and not doc.body|has_content %} open{% endif %}>
-    <summary>{% blocktranslate with phase=input_doc.get_phase_display n=input_doc.cycle %}Input: the {{ phase }} document, loop {{ n }}{% endblocktranslate %}</summary>
-    <div class="doc input-body">{{ input_doc.body|tidy }}</div>
-    <p class="meta"><a href="{% document_url input_doc %}">{% translate "Open it with its comments" %}</a></p>
-  </details>
-  {% endif %}
+    {% if lenses and is_current %}
+    <details class="chip lenses">
+      <summary>{% translate "Try another lens" %}</summary>
+      <ul class="plain">
+        {% for lens in lenses %}
+        <li><strong>{{ lens.name }}</strong>{% if lens.source %} <span class="meta">{{ lens.source }}</span>{% endif %}
+          <div>{{ lens.question }}</div>
+          {% if can_edit %}<form method="post" action="{% url 'board:use_lens' item.number lens.pk %}" class="inline">{% csrf_token %}<button class="link">{% translate "add the question to the document" %}</button></form>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="meta"><a href="{% url 'board:library' %}">{% translate "The whole library" %} →</a></p>
+    </details>
+    {% endif %}
+
+    {% if is_current and not public and not item.is_done %}
+    <details class="chip observe-chip" id="observe">
+      <summary>+ {% translate "Note an observation" %}</summary>
+      <form method="post" action="{% url 'board:observe_now' item.number %}" class="observe-now">{% csrf_token %}
+        <input name="body" required autocomplete="off" aria-label="{% translate 'New observation' %}"
+          placeholder="{% translate 'Noticed something? Whatever phase this is in…' %}">
+        <span class="signals" role="radiogroup" aria-label="{% translate 'How do we know?' %}">
+          <label><input type="radio" name="signal" value="seen" checked> {% translate "Seen" %}</label>
+          <label><input type="radio" name="signal" value="measured"> {% translate "Measured" %}</label>
+          <label title="{% translate 'A feeling before it has words: unease, gut feeling. It can stay without words for now.' %}"><input type="radio" name="signal" value="felt"> {% translate "Felt" %}</label>
+        </span>
+        <button>{% translate "Note" %}</button>
+      </form>
+    </details>
+    {% endif %}
+
+    {% if ai_share %}
+    <p class="chip-note">{% blocktranslate count n=ai_share %}{{ n }} accepted change here came from an AI suggestion.{% plural %}{{ n }} accepted changes here came from AI suggestions.{% endblocktranslate %} {% translate "Has someone put it in their own words?" %}</p>
+    {% endif %}
+  </div>
+
 
   {% if can_edit %}
   <div class="toolbar" role="toolbar" aria-label="{% translate 'Formatting' %}">
@@ -243,6 +255,8 @@
     <button type="button" data-cmd="insertOrderedList" title="{% translate 'Numbered list' %}">1.</button>
     <button type="button" data-block="blockquote" title="{% translate 'Quote' %}">“</button>
     <button type="button" data-link title="{% translate 'Link' %}" data-prompt="{% translate 'Address' %}">↗</button>
+    <span class="sep"></span>
+    <button type="button" data-clear-questions class="journal-btn" title="{% translate 'The questions are an offer, not a form. Remove the ones nobody has answered.' %}">{% translate "Clear unused questions" %}</button>
     {% if doc.phase == "act" %}
     <span class="sep"></span>
     <button type="button" data-journal data-who="{{ user.name }}" title="{% translate 'New journal entry with date and time' %}" class="journal-btn">{% translate "+ Entry" %}</button>
