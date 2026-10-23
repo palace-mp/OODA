@@ -70,9 +70,9 @@ GUIDES = {
         "with a result we can measure and decide on. The output is a set of experiments."
     ),
     "act": gettext_lazy(
-        "Run the experiments and keep a journal of what happens. Write the results as observations — "
-        "what was seen and measured, against the thresholds set in Decide — so the next Observe can "
-        "start from them."
+        "Run the experiments and keep a journal of what happens. Write the results as observations of "
+        "how the system responded — customers, market, the team — not of what we did, so the next "
+        "Observe can start from them. What wasn't measured counts too."
     ),
 }
 
@@ -92,12 +92,13 @@ def template(phase, previous=None):
             _("Has this happened before, and where is it heading?"),
             _("Compared to what? Baseline, earlier periods, peers"),
             assumptions_heading(),
+            others_heading(),
             other_eyes_heading(),
             inversion_heading(),
             missing_voices_heading(),
             new_picture_heading(),
             _("Hypotheses: what could explain it, and how could we test it?"),
-            _("What don't we know yet?"),
+            _("What don't we know yet, and what don't we even have words for?"),
         ],
     }.get(phase, [])
     if phase == "decide":
@@ -130,7 +131,11 @@ def surprise_heading():
 
 
 def assumptions_heading():
-    return _("What do we assume today, and which parts still hold?")
+    return _("What do we assume today, which story are we living in, and which parts still hold?")
+
+
+def others_heading():
+    return _("How do the others see it? Customers, competitors, stakeholders: what do they believe, how fast do they move?")
 
 
 def other_eyes_heading():
@@ -183,11 +188,21 @@ def act_template(decide=None):
         danger = fields.get(what, ("", ""))[1].rstrip(" .")
         if danger:
             lines.append(f"<li><strong>{escape(f'{name} — {danger}')}:</strong> </li>")
+    upside = opportunity_labels()[0]
+    for name, fields in opportunities(decide.body if decide else "").items():
+        chance = fields.get(upside, ("", ""))[1].rstrip(" .")
+        if chance:
+            lines.append(f"<li><strong>{escape(f'{name} — {chance}')}:</strong> </li>")
     results = f"<ul>{''.join(lines)}</ul>" if lines else "<p><br></p>"
     return (
         f"<h3>{escape(_('Journal'))}</h3><p><br></p>"
         f"<h3>{escape(results_heading())}</h3>{results}"
+        f"<h3>{escape(unmeasured_heading())}</h3><p><br></p>"
     )
+
+
+def unmeasured_heading():
+    return _("What happened that we didn't measure? Side effects, missed chances, how it felt")
 
 
 def section_html(html, starts):
@@ -206,6 +221,27 @@ def risk_labels():
     return [_("What could go wrong"), _("Early signal"), _("If we see it, we will")]
 
 
+def opportunity_labels():
+    return [_("What could go better than planned"), _("Early signal"), _("If we see it, we will")]
+
+
+def opportunity(n):
+    items = "".join(f"<li><strong>{escape(label)}:</strong> </li>" for label in opportunity_labels())
+    return f"<h3>{escape(_('Opportunity %(n)s') % {'n': n})}</h3><ul>{items}</ul>"
+
+
+def opportunities(html):
+    return labelled_blocks(html, _("Opportunity").lower(), opportunity_labels())
+
+
+def optionality_heading():
+    return _("Which doors does this keep open, and which does it close?")
+
+
+def ethics_heading():
+    return _("Purpose, transparency, consequence: is it good for those it affects, do they know, does trust grow?")
+
+
 def risk(n):
     items = "".join(f"<li><strong>{escape(label)}:</strong> </li>" for label in risk_labels())
     return f"<h3>{escape(_('Risk %(n)s') % {'n': n})}</h3><ul>{items}</ul>"
@@ -222,7 +258,9 @@ def decide_template(orient=None):
     return (
         f"<h3>{escape(_('Assumptions from Orient to validate'))}</h3>{assumptions or '<p><br></p>'}"
         + experiment(1) + experiment(2)
-        + risk(1)
+        + risk(1) + opportunity(1)
+        + f"<h3>{escape(optionality_heading())}</h3><p><br></p>"
+        + f"<h3>{escape(ethics_heading())}</h3><p><br></p>"
         + f"<h3>{escape(_('Which first, and why?'))}</h3><p><br></p>"
     )
 

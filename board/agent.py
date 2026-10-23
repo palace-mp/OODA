@@ -49,7 +49,9 @@ CRITERIA = {
         "Decide designs a set of experiments that validate the assumptions from Orient (its hypotheses "
         "are the input). Each experiment tests one assumption and states what we do, how we measure, "
         "the result that would confirm it, the result that would refute it, what we will do if it fails "
-        "(decided now, as in the observational method), and its time and cost. Risks belong here too: "
+        "(decided now, as in the observational method), and its time and cost. Ask which doors each "
+        "choice keeps open and which it closes, and whether it passes purpose, transparency and "
+        "consequence for the people it affects. Risks belong here too, and so does their upside: "
         "strategy and risk are the same uncertainty. A risk names what could go wrong, its early signal, "
         "and what we will do when we see it. "
         "Point out assumptions from Orient that no experiment tests, experiments that test several "
@@ -58,9 +60,10 @@ CRITERIA = {
     ),
     "act": (
         "Act runs the experiments designed in Decide and keeps a journal of what happens. The results "
-        "are the input to the next Observe, so each must be written as an observation: what was seen "
-        "and measured, set against the thresholds decided beforehand, without new explanations or "
-        "proposals. Point out experiments from Decide that have no result, results that are judgements "
+        "are the input to the next Observe, so each must be written as an observation of how the system "
+        "responded (customers, market, the team), not of what we did, set against the thresholds decided "
+        "beforehand, without new explanations or proposals. What happened that wasn't measured (side "
+        "effects, missed chances, how it felt) is a result too. Point out experiments from Decide that have no result, results that are judgements "
         "or conclusions rather than observations, results without a measurement where a threshold was "
         "set, and journal entries that lack a date."
     ),
@@ -186,6 +189,12 @@ JUDGEMENT = re.compile(
 FEELING = re.compile(
     r"\b(feel|feels|felt|feeling|gut|uneasy|unease|stress|stressed|worried|frustrat\w*|"
     r"känns|känsla|magkänsla|oro|orolig|stressad|frustrerad)\b", re.I)
+ACTIVITY = re.compile(
+    r"\b(we (did|launched|shipped|implemented|delivered|sent|held|built|made|ran)|launched|shipped|implemented|"
+    r"vi (gjorde|lanserade|införde|genomförde|skickade|byggde|höll)|lanserade|införde|genomförde)\b", re.I)
+RESPONSE = re.compile(
+    r"\b(customers?|users?|market|team|responded|reacted|bought|churn\w*|signed|stopped|asked|"
+    r"kund\w*|användar\w*|marknad\w*|svarade|reagerade|köpte)\b|\d", re.I)
 VAGUE = re.compile(r"\b(often|many|some|several|a lot|lots of|always|never|ofta|många|några|flera|alltid|aldrig)\b", re.I)
 
 
@@ -227,8 +236,9 @@ def rule_review(doc, input_doc):
             _h, felt_before = section(input_doc.body, (felt_heading().lower(),))
             if felt_before:
                 notes.insert(0, Note("comment", first, (
-                    f"Observe noted a feeling: “{felt_before[:120]}”. Feelings are signals before they "
-                    "have words. What might this one be telling us about the context?")))
+                    f"Observe noted a feeling: “{felt_before[:120]}”. It may not have words yet, and that is "
+                    "fine. Keep it in view: does anything here explain it, or does it point to something we "
+                    "haven't seen?")))
     if doc.phase == "decide":
         notes += decide_rules(doc)
     if doc.phase == "act":
@@ -261,7 +271,9 @@ def decide_rules(doc):
                 notes.append(Note("comment", line, question))
         line, value = fields.get(holds, ("", ""))
         if value and not re.search(r"\d", value):
-            notes.append(Note("comment", line, "Can this threshold be a number, so nobody has to argue about it afterwards?"))
+            notes.append(Note("comment", line, (
+                "Can this threshold be a number, or, if it can't be counted, a signal everyone would "
+                "recognise? Decided now, nobody has to argue about it afterwards.")))
     what, signal, if_seen = risk_labels()
     risk_blocks = risks(doc.body)
     named = {h: f for h, f in risk_blocks.items() if f.get(what, ("", ""))[1]}
@@ -297,6 +309,10 @@ def act_rules(doc):
             notes.append(Note("comment", text.strip(), (
                 "What came of this experiment? Write it as an observation: what was measured, "
                 "next to the threshold from Decide.")))
+        elif ACTIVITY.search(result) and not RESPONSE.search(result):
+            notes.append(Note("comment", result, (
+                "That's what we did. How did the system respond: customers, the market, the team? "
+                "Activity isn't the result.")))
         elif JUDGEMENT.search(result):
             notes.append(Note("comment", result, (
                 "This reads as a conclusion. What was actually seen? The next Observe starts from "

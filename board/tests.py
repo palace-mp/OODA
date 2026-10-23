@@ -549,7 +549,7 @@ class OrientReviewTests(Base):
 
     def test_asks_to_take_the_old_picture_apart(self):
         notes = self.quotes(self.orient_doc("<p>Churn is 7% according to the billing report, compared to 4%.</p>"))
-        self.assertIn("What do we assume today, and which parts still hold?", notes)
+        self.assertIn("What do we assume today, which story are we living in, and which parts still hold?", notes)
         self.assertIn("How would someone from a completely different field explain this?", notes)
 
 
@@ -966,3 +966,42 @@ class LibraryTests(Base):
         lens = r.context["lenses"][0]
         self.client.post(reverse("board:use_lens", args=[it.number, lens.pk]))
         self.assertIn(f"<h3>{lens.question} ({lens.name})</h3>", it.document.body)
+
+
+class ImmeasurableAndUpsideTests(Base):
+    def test_decide_asks_for_doors_ethics_and_upside(self):
+        from .document import ethics_heading, optionality_heading
+
+        it = self.item("Pricing")
+        it.advance(self.anna)
+        it.advance(self.anna)
+        body = it.document.body
+        self.assertIn("<h3>Opportunity 1</h3>", body)
+        self.assertIn(f"<h3>{optionality_heading()}</h3>", body)
+        self.assertIn("Purpose, transparency, consequence", ethics_heading())
+
+    def test_opportunities_are_watched_in_the_portfolio(self):
+        it = self.item("Pricing")
+        it.advance(self.anna)
+        it.advance(self.anna)
+        d = it.document
+        d.body = d.body.replace("<li><strong>What could go better than planned:</strong> </li>",
+                                "<li><strong>What could go better than planned:</strong> Partners resell it.</li>")
+        d.save()
+        r = self.client.get(reverse("board:hypotheses"))
+        self.assertEqual([(h.kind, h.status) for h in r.context["hypotheses"]], [("opportunity", "watching")])
+        it.advance(self.anna)
+        self.assertIn("Opportunity 1 — Partners resell it:", it.document.body)
+        self.assertIn("What happened that we didn&#x27;t measure?", it.document.body)
+
+    def test_agent_asks_for_the_system_response_not_the_activity(self):
+        from .agent import act_rules
+
+        it = self.item("Pricing")
+        for _ in range(3):
+            it.advance(self.anna)
+        doc = it.document
+        doc.body = ("<h3>Journal</h3><p>3 Nov: started.</p><h3>Results as observations</h3>"
+                    "<ul><li><strong>Experiment 1:</strong> We launched the annual plan.</li></ul>")
+        notes = {n.quote: n.comment for n in act_rules(doc)}
+        self.assertIn("How did the system respond", notes["We launched the annual plan."])

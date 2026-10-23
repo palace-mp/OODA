@@ -4,7 +4,7 @@
 {% block content %}
 <div class="narrow wide-ish">
   <h1>{% translate "Hypotheses and risks" %}</h1>
-  <p class="lede">{% translate "Every assumption the board is testing, and every risk it is watching — one portfolio of uncertainty. See where to double down and where to change course." %}</p>
+  <p class="lede">{% translate "Every assumption the board is testing, and every risk and opportunity it is watching — one portfolio of uncertainty, with its upside as well as its downside. See where to double down and where to change course." %}</p>
 
   <p class="views">
     <a href="?" {% if not status %}aria-current="true"{% endif %}>{% translate "All" %} <span class="meta">{{ total }}</span></a>
@@ -20,7 +20,7 @@
       {% for h in hypotheses %}
       <tr>
         <td class="nowrap"><span class="hstatus h-{{ h.status }}">{{ h.status_label }}</span></td>
-        <td>{% if h.kind == "risk" %}<span class="kind-label">{% translate "Risk" %}</span> {% endif %}{{ h.text }}
+        <td>{% if h.kind == "risk" %}<span class="kind-label">{% translate "Risk" %}</span> {% elif h.kind == "opportunity" %}<span class="kind-label upside">{% translate "Opportunity" %}</span> {% endif %}{{ h.text }}
           {% if h.signal %}<div class="meta">{% translate "Early signal:" %} {{ h.signal }}</div>{% endif %}</td>
         <td class="nowrap"><a href="{{ h.item.get_absolute_url }}">#{{ h.item.number }}</a> <span class="meta">{% blocktranslate with n=h.cycle %}loop {{ n }}{% endblocktranslate %}</span><br><span class="meta">{{ h.item.title|truncatechars:36 }}</span></td>
         <td class="meta">{{ h.then|default:"—" }}</td>

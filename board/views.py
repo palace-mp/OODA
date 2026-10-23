@@ -301,11 +301,20 @@ def outcomes_for(doc):
                 "verdict": verdicts.get(name),
                 "choices": Verdict.OUTCOMES,
             })
-    what, signal, then = document.risk_labels()
-    for name, fields in document.risks(decide.body).items():
+    for kind, labels_, found in (("risk", document.risk_labels(), document.risks(decide.body)),
+                                 ("opportunity", document.opportunity_labels(), document.opportunities(decide.body))):
+        rows += uncertainty_rows(kind, labels_, found, verdicts)
+    return rows
+
+
+def uncertainty_rows(kind, labels, found, verdicts):
+    """Risks and opportunities: what could happen, its early signal, and what we will do then."""
+    what, signal, then = labels
+    rows = []
+    for name, fields in found.items():
         if fields.get(what, ("", ""))[1]:
             rows.append({
-                "kind": "risk",
+                "kind": kind,
                 "name": name,
                 "hypothesis": fields[what][1],
                 "signal": fields.get(signal, ("", ""))[1],

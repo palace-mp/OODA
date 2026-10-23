@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from django.utils.translation import gettext_lazy as _
 
-from .document import experiment_labels, experiments, risk_labels, risks
+from .document import experiment_labels, experiments, opportunities, opportunity_labels, risk_labels, risks
 from .models import ACT, DECIDE, Document, Verdict
 
 PLANNED, TESTING, WATCHING, NOT_CONCLUDED = "planned", "testing", "watching", "open"
@@ -32,7 +32,7 @@ class Hypothesis:
 
     @property
     def status_label(self):
-        if self.kind == "risk" and self.status in dict(Verdict.RISK_OUTCOMES):
+        if self.kind != "experiment" and self.status in dict(Verdict.RISK_OUTCOMES):
             return dict(Verdict.RISK_OUTCOMES)[self.status]
         return dict(STATUSES)[self.status]
 
@@ -57,16 +57,17 @@ def from_document(doc, verdicts):
             status = NOT_CONCLUDED
         out.append(Hypothesis(item, doc.cycle, name, fields.get(hypothesis, ("", ""))[1] or name,
                               fields.get(then, ("", ""))[1], status))
-    what, signal, if_seen = risk_labels()
-    for name, fields in risks(doc.body).items():
-        danger = fields.get(what, ("", ""))[1]
-        if not danger:
-            continue
-        verdict = verdicts.get((item.pk, doc.cycle, name))
-        live = doc.cycle == item.cycle and item.phase in (DECIDE, ACT) and not item.is_done
-        status = verdict or (WATCHING if live else NOT_CONCLUDED)
-        out.append(Hypothesis(item, doc.cycle, name, danger, fields.get(if_seen, ("", ""))[1], status,
-                              kind="risk", signal=fields.get(signal, ("", ""))[1]))
+    live = doc.cycle == item.cycle and item.phase in (DECIDE, ACT) and not item.is_done
+    for kind, labels, found in (("risk", risk_labels(), risks(doc.body)),
+                                ("opportunity", opportunity_labels(), opportunities(doc.body))):
+        what, signal, if_seen = labels
+        for name, fields in found.items():
+            text = fields.get(what, ("", ""))[1]
+            if not text:
+                continue
+            status = verdicts.get((item.pk, doc.cycle, name)) or (WATCHING if live else NOT_CONCLUDED)
+            out.append(Hypothesis(item, doc.cycle, name, text, fields.get(if_seen, ("", ""))[1], status,
+                                  kind=kind, signal=fields.get(signal, ("", ""))[1]))
     return out
 
 

@@ -148,7 +148,7 @@
 
   {% if outcomes %}
   <section id="outcomes" class="outcomes">
-    <h2>{% translate "Outcome per experiment and risk" %}</h2>
+    <h2>{% translate "Outcomes: experiments, risks and opportunities" %}</h2>
     <ul class="plain">
       {% for o in outcomes %}
       <li class="outcome k-{{ o.kind }}{% if o.verdict %} v-{{ o.verdict.outcome }}{% endif %}">
@@ -165,7 +165,7 @@
         <span class="verdict-label">{% if o.verdict %}{% for key, label in o.choices %}{% if key == o.verdict.outcome %}{{ label }}{% endif %}{% endfor %}{% else %}{% translate "not decided" %}{% endif %}</span>
         {% endif %}
         {% if o.verdict.outcome == "failed" and o.then %}
-        <p class="then">{% if o.kind == "risk" %}{% translate "Decided in advance — if we see it, we will:" %}{% else %}{% translate "Decided in advance — if it fails, we will:" %}{% endif %} <strong>{{ o.then }}</strong></p>
+        <p class="then">{% if o.kind != "experiment" %}{% translate "Decided in advance — if we see it, we will:" %}{% else %}{% translate "Decided in advance — if it fails, we will:" %}{% endif %} <strong>{{ o.then }}</strong></p>
         {% endif %}
       </li>
       {% endfor %}
